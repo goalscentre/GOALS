@@ -13058,6 +13058,27 @@ function renderMobileResum(container) {
       <button class="btn btn-secondary" style="width:100%;justify-content:center" onclick="exportBackup()">
         💾 Còpia de Seguretat
       </button>
+
+      <!-- Google Drive -->
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:14px 16px">
+        <div style="font-size:10px;font-family:var(--font-mono);color:var(--text3);letter-spacing:0.8px;text-transform:uppercase;margin-bottom:10px">Google Drive</div>
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+          <div class="gdrive-dot ${gdriveToken?'connected':'offline'}" style="width:9px;height:9px;border-radius:50%;background:${gdriveToken?'var(--accent)':'var(--text3)'}"></div>
+          <span style="font-size:12px;font-family:var(--font-mono);color:${gdriveToken?'var(--accent)':'var(--text2)'}">${gdriveToken?'Connectat':'No connectat'}</span>
+        </div>
+        ${gdriveToken?`
+        <button class="btn btn-secondary" style="width:100%;justify-content:center;color:var(--accent)" onclick="gdriveSyncNow();renderMobileContent()">
+          ↻ Sincronitzar ara
+        </button>
+        <button class="btn btn-secondary" style="width:100%;justify-content:center;color:var(--red);margin-top:8px" onclick="gdriveAction();renderMobileContent()">
+          🔓 Desconnectar Drive
+        </button>
+        `:`
+        <button class="btn btn-primary" style="width:100%;justify-content:center" onclick="gdriveAction()">
+          🔗 Connectar amb Google Drive
+        </button>
+        `}
+      </div>
     </div>
   `;
 }
