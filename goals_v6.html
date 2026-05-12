@@ -9935,7 +9935,7 @@ function renderClientsTable(container) {
           <div class="progress-wrap" style="margin-top:3px"><div class="progress-bar"><div class="progress-fill" style="width:${pct}%"></div></div></div>
           `}
         </td>
-        <td><span class="money">${c.priceOverride!=null?'<span style="color:var(--blue)">★ </span>':''}${price.toFixed(2)} €</span></td>
+        <td><span class="money" style="white-space:nowrap">${c.priceOverride!=null?'<span style="color:var(--blue)">★ </span>':''}${price.toFixed(2)} €</span></td>
         <td>
           <span class="money">${fmt(total)}</span>
           ${(c.descompte||0)>0?`<br><span style="font-size:10px;background:var(--orange-dim);color:var(--orange);padding:1px 5px;border-radius:3px;font-family:var(--font-mono)">−${c.descompte}%</span>`:''}
@@ -9996,7 +9996,7 @@ function renderClientsTable(container) {
           <th onclick="sortBy('name')"    class="${sortCol==='name'?'sorted':''}">CLIENT ${sortCol==='name'?(sortDir>0?'↑':'↓'):''}</th>
           <th onclick="sortBy('sessions')" class="${sortCol==='sessions'?'sorted':''}">SESS. ${sortCol==='sessions'?(sortDir>0?'↑':'↓'):''}</th>
           <th style="width:110px">REALITZ.</th>
-          <th style="width:100px">€/SESS</th>
+          <th style="width:110px;white-space:nowrap">€/SESS</th>
           <th onclick="sortBy('total')"   class="${sortCol==='total'?'sorted':''}" style="width:90px">TOTAL ${sortCol==='total'?(sortDir>0?'↑':'↓'):''}</th>
           <th onclick="sortBy('paid')"    class="${sortCol==='paid'?'sorted':''}"    style="width:90px">PAGAT ${sortCol==='paid'?(sortDir>0?'↑':'↓'):''}</th>
           <th onclick="sortBy('pending')" class="${sortCol==='pending'?'sorted':''}" style="width:90px">PENDENT ${sortCol==='pending'?(sortDir>0?'↑':'↓'):''}</th>
@@ -10166,7 +10166,7 @@ function refreshClientRow(id) {
         <div class="progress-wrap" style="margin-top:4px"><div class="progress-bar"><div class="progress-fill" style="width:${pct}%"></div></div></div>
       `}
     </td>
-    <td><span class="money">${c.priceOverride!=null?'<span style="color:var(--blue)">★ </span>':''}${price.toFixed(2)} €</span></td>
+    <td><span class="money" style="white-space:nowrap">${c.priceOverride!=null?'<span style="color:var(--blue)">★ </span>':''}${price.toFixed(2)} €</span></td>
     <td>
       <span class="money">${fmt(total)}</span>
       ${(c.descompte||0)>0?`<br><span style="font-size:10px;background:var(--orange-dim);color:var(--orange);padding:1px 5px;border-radius:3px;font-family:var(--font-mono)">−${c.descompte}%</span>`:''}
@@ -10284,7 +10284,13 @@ function toggleClosedMonth(close) {
 }
 
 function confirmCloseMonth() {
-  getCurrentMonth().closed = true;
+  const month = getCurrentMonth();
+  // Snapshot de les tarifes en tancar el mes
+  month.tarifesSnapshot = {};
+  CATEGORIES.forEach(cat => {
+    month.tarifesSnapshot[cat.id] = getTarifesForCat(cat.id).map(t => ({...t}));
+  });
+  month.closed = true;
   saveData(); closeModal(); render();
   toast('Mes tancat 🔒');
 }
@@ -12438,6 +12444,11 @@ function renderDetall(container, actions) {
                 style="padding:10px 20px;border:none;background:${detallTab===k+'-gastos'?'var(--surface)':'transparent'};color:${detallTab===k+'-gastos'?'var(--red)':'var(--text2)'};font-family:'DM Sans',sans-serif;font-size:13px;font-weight:500;cursor:pointer;border-bottom:2px solid ${detallTab===k+'-gastos'?'var(--red)':'transparent'};transition:all 0.15s">
                 💸 Gastos (${(m.gastos||[]).length})
               </button>
+              ${m.tarifesSnapshot ? `
+              <button onclick="setDetallTab('${k}','tarifes')" id="dtab-${k}-tarifes"
+                style="padding:10px 20px;border:none;background:${detallTab===k+'-tarifes'?'var(--surface)':'transparent'};color:${detallTab===k+'-tarifes'?'var(--blue)':'var(--text2)'};font-family:'DM Sans',sans-serif;font-size:13px;font-weight:500;cursor:pointer;border-bottom:2px solid ${detallTab===k+'-tarifes'?'var(--blue)':'transparent'};transition:all 0.15s">
+                💶 Tarifes
+              </button>` : ''}
               <div style="flex:1;display:flex;justify-content:flex-end;align-items:center;padding-right:14px;gap:8px">
                 <button class="btn btn-sm btn-secondary" onclick="changeMonth('${k}');navigate('clients')">
                   → Anar al mes
@@ -12563,6 +12574,35 @@ function renderDetallTab(k, m, clients, pendingClients) {
       }).join('')}
     </tbody>
   </table></div>`;
+
+  // ── TAB TARIFES ──
+  if (activeTab === k + '-tarifes') {
+    const snap = m.tarifesSnapshot;
+    if (!snap) return '<div class="empty-state" style="padding:30px"><div class="icon">💶</div><p>No hi ha snapshot de tarifes per a aquest mes</p></div>';
+    return '<div style="padding:20px;display:flex;flex-direction:column;gap:16px">' +
+      '<div style="font-size:12px;color:var(--text2);background:var(--surface2);padding:10px 14px;border-radius:var(--radius-sm);border:1px solid var(--border)">' +
+      '📸 Tarifes vigents quan es va tancar aquest mes' +
+      '</div>' +
+      CATEGORIES.map(cat => {
+        const rows = snap[cat.id] || [];
+        if (!rows.length) return '';
+        return '<div>' +
+          '<div style="font-size:11px;font-family:var(--font-mono);color:var(--text3);letter-spacing:0.8px;margin-bottom:8px"><span class="' + cat.cls + ' cat-badge">' + cat.label + '</span></div>' +
+          '<table style="width:100%;border-collapse:collapse;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-sm)">' +
+          '<thead><tr>' +
+          '<th style="padding:8px 14px;text-align:left;font-size:10px;font-family:var(--font-mono);color:var(--text3);border-bottom:1px solid var(--border)">DES DE</th>' +
+          '<th style="padding:8px 14px;text-align:left;font-size:10px;font-family:var(--font-mono);color:var(--text3);border-bottom:1px solid var(--border)">FINS A</th>' +
+          '<th style="padding:8px 14px;text-align:left;font-size:10px;font-family:var(--font-mono);color:var(--text3);border-bottom:1px solid var(--border)">€/SESSIÓ</th>' +
+          '</tr></thead><tbody>' +
+          rows.map(r => '<tr style="border-bottom:1px solid var(--border)">' +
+            '<td style="padding:8px 14px;font-family:var(--font-mono);font-size:12px">' + r.from + '</td>' +
+            '<td style="padding:8px 14px;font-family:var(--font-mono);font-size:12px">' + (r.to === 999 ? '∞' : r.to) + '</td>' +
+            '<td style="padding:8px 14px;font-family:var(--font-mono);font-size:12px;color:var(--accent)">' + r.price.toFixed(2) + ' €</td>' +
+            '</tr>').join('') +
+          '</tbody></table></div>';
+      }).join('') +
+      '</div>';
+  }
 }
 
 // ══════════════════════════════════════════════
@@ -13267,7 +13307,13 @@ async function gdriveSaveNow() {
       gdriveLastSaved = new Date();
       localStorage.setItem('goals_last_saved', Date.now().toString());
       const timeStr = gdriveLastSaved.toLocaleTimeString('ca-ES', {hour:'2-digit',minute:'2-digit'});
-      gdriveSetStatus('connected', 'Drive connectat · Guardat ' + timeStr);
+      gdriveSetStatus('connected', timeStr);
+      // Toast discret
+      const t = document.createElement('div');
+      t.textContent = '☁️ Drive guardat ' + timeStr;
+      t.style.cssText = 'position:fixed;bottom:70px;right:20px;background:var(--surface);border:1px solid var(--border);color:var(--text3);padding:6px 12px;border-radius:var(--radius-sm);font-size:11px;font-family:var(--font-mono);z-index:999;opacity:1;transition:opacity 1s';
+      document.body.appendChild(t);
+      setTimeout(() => { t.style.opacity='0'; setTimeout(()=>t.remove(),1000); }, 2500);
     } else {
       gdriveSetStatus('error', 'Error en guardar al Drive');
     }
