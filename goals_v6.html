@@ -12593,10 +12593,10 @@ function renderAjuda(container, actions) {
   <div style="max-width:860px;margin:0 auto;display:flex;flex-direction:column;gap:16px">
 
     <div style="background:var(--accent-dim2);border:1px solid rgba(200,240,69,0.25);border-radius:var(--radius);padding:22px 26px">
-      <div style="font-family:var(--font-syne);font-weight:800;font-size:20px;color:var(--accent);margin-bottom:6px">GOALS — Gestió de Pagaments v6.0</div>
+      <div style="font-family:var(--font-syne);font-weight:800;font-size:20px;color:var(--accent);margin-bottom:6px">GOALS — Gestió de Pagaments v7.0</div>
       <div style="color:var(--text2);font-size:13.5px;line-height:1.7">
-        Aplicació local per gestionar clients, sessions, pagaments i finances del centre.
-        Tot es guarda automàticament al navegador. No necessites connexió a internet ni cap servidor.
+        Aplicació per gestionar clients, sessions, pagaments i finances del centre.
+        Les dades es guarden localment al navegador i es sincronitzen automàticament amb Google Drive quan estàs connectat.
       </div>
     </div>
 
@@ -12697,18 +12697,28 @@ function renderAjuda(container, actions) {
       ['Descompte global a la fitxa', 'Quan afegeixes un client existent a un mes nou, el seu descompte de la fitxa global s\'aplica automàticament com a valor inicial.'],
     ])}
 
+    ${section('☁️', 'Google Drive — Sincronització', [
+      ['Per a què serveix', 'Guarda les dades al núvol per accedir des de qualsevol dispositiu (mòbil, portàtil, ordinador) i tenir còpia de seguretat automàtica.'],
+      ['Connectar', 'Clica el botó 🔗 a la topbar (escriptori) o a la pestanya Resum (mòbil). S\'obre una finestra de Google per autoritzar.'],
+      ['Sincronització automàtica', 'Cada vegada que modifiques qualsevol dada, l\'app guarda automàticament al Drive després de 2 segons.'],
+      ['Indicador d\'estat', 'Punt verd = connectat · Punt blau parpellejant = guardant · Punt gris = desconnectat · Punt vermell = error.'],
+      ['Sense connexió', 'L\'app funciona perfectament offline. Les dades es guarden localment. Quan recuperes connexió, clica ↻ per sincronitzar.'],
+      ['Múltiples dispositius', 'Usa el mateix compte Google des de qualsevol dispositiu. En connectar, carrega automàticament les dades més recents.'],
+      ['Desconnectar', 'Clica 🔓 per desconnectar. Les dades es mantenen localment.'],
+    ])}
+
     ${section('📱', 'Vista Mòbil', [
       ['Detecció automàtica', 'En pantalles ≤768px l\'app canvia automàticament a la vista mòbil optimitzada per dits.'],
       ['Botó de canvi', 'Botó flotant "📱 Vista Mòbil" a la cantonada inferior dreta per activar-la des de l\'ordinador.'],
-      ['4 pestanyes mòbil', 'Sessions (botons −/+ per sessions i pagament inline) · Pendents · Gastos · Resum.'],
+      ['4 pestanyes mòbil', 'Sessions (botons −/+ per sessions i pagament inline) · Pendents · Gastos · Resum (KPIs, Google Drive, PDF i backup).'],
       ['Toolbar fixa al mòbil', 'A la pestanya Sessions, els KPIs, la cerca i els filtres queden fixos. Només les targetes de clients fan scroll.'],
+      ['Google Drive al mòbil', 'A la pestanya Resum, secció "Google Drive" amb botó de connectar, sincronitzar i desconnectar.'],
     ])}
 
-    ${section('💾', 'Còpia de seguretat', [
-      ['Exportar backup (💾)', 'A la barra superior de Clients. Exporta totes les dades en JSON amb la data d\'avui al nom.'],
+    ${section('💾', 'Còpia de seguretat manual', [
+      ['Exportar backup (💾)', 'A la barra superior de Clients. Exporta totes les dades en JSON. Recomanat com a seguretat addicional al Drive.'],
       ['Importar backup (📥)', 'Carrega un JSON exportat prèviament. Demana confirmació abans de sobreescriure.'],
-      ['Per a què?', 'Còpies periòdiques, migrar dades a un altre ordinador o navegador, o recuperar dades si el navegador s\'esborra.'],
-      ['On es guarden?', 'localStorage del navegador, clau: goals_data_v3. Si esborreges les dades del navegador, es perdrà tot — fes backup regularment!'],
+      ['On es guarden?', 'Local: localStorage (goals_data_v3). Núvol: Google Drive (goals_data.json, carpeta privada de l\'app).'],
     ])}
 
     ${section('⬇️', 'Exportar CSV', [
@@ -12717,8 +12727,8 @@ function renderAjuda(container, actions) {
     ])}
 
     <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:18px 20px;text-align:center;color:var(--text3);font-size:11px;font-family:var(--font-mono);line-height:2">
-      GOALS v6.0 · Clau de dades: goals_data_v3 · Cap dada s'envia a cap servidor<br>
-      Backup recomanat mensualment · Tecla Esc per tancar modals
+      GOALS v7.0 · Local: goals_data_v3 · Núvol: Google Drive (goals_data.json)<br>
+      Backup manual recomanat mensualment · Tecla Esc per tancar modals
     </div>
 
   </div>
