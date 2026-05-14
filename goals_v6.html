@@ -774,7 +774,7 @@
   <div id="splash-screen" style="display:none;position:fixed;inset:0;background:#0f0f0f;z-index:9999;flex-direction:column;align-items:center;justify-content:center;gap:0">
     <img src="icon-512.png" style="width:120px;height:120px;border-radius:24px;margin-bottom:28px" />
     <div style="font-family:'Syne',sans-serif;font-weight:800;font-size:28px;color:#c8f045;margin-bottom:6px">GOALS</div>
-    <div style="font-family:'DM Mono',monospace;font-size:11px;color:#555;letter-spacing:1px;margin-bottom:48px">GESTIÓ DE PAGAMENTS</div>
+    <div style="font-family:'DM Mono',monospace;font-size:11px;color:#555;letter-spacing:1px;margin-bottom:48px">GESTIÓ DE PAGAMENTS · v7.1</div>
     <div id="splash-content" style="display:flex;flex-direction:column;align-items:center;gap:12px;width:280px">
       <!-- Content injected by JS -->
     </div>
@@ -784,6 +784,7 @@
     <div class="sidebar-logo">
       <h1>GOALS</h1>
       <span>GESTIÓ DE PAGAMENTS</span>
+      <span id="sidebar-version" style="font-size:9px;color:#333;font-family:'DM Mono',monospace;letter-spacing:0.5px;margin-top:2px">v7.1</span>
     </div>
 
     <div class="sidebar-section">
@@ -964,7 +965,8 @@ function loadData() {
             const price = c.priceOverride != null ? c.priceOverride : getPrice(c.sessions, c.cat);
             const base  = price * c.sessions;
             const total = c.descompte > 0 ? base * (1 - c.descompte / 100) : base;
-            const pending = Math.max(0, Math.round((Math.round(total*100)/100 - Math.round((c.paid||0)*100)/100)*100)/100);
+            const paidR2 = Math.round((c.paid||0)*100)/100; const totalR2 = Math.round(total*100)/100;
+            const pending = paidR2 >= totalR2 ? 0 : Math.max(0, Math.round((totalR2 - paidR2)*100)/100);
             c.estat = pending > 0 ? '01 Pendent' : '02 Pagat';
           }
         });
@@ -9621,7 +9623,8 @@ function getDefaultData() {
         const price = c.priceOverride != null ? c.priceOverride : getPrice(c.sessions, c.cat);
         const base  = price * c.sessions;
         const total = c.descompte > 0 ? base * (1 - c.descompte / 100) : base;
-        const pending = Math.max(0, Math.round((Math.round(total*100)/100 - Math.round((c.paid||0)*100)/100)*100)/100);
+        const paidR3 = Math.round((c.paid||0)*100)/100; const totalR3 = Math.round(total*100)/100;
+        const pending = paidR3 >= totalR3 ? 0 : Math.max(0, Math.round((totalR3 - paidR3)*100)/100);
         c.estat = pending > 0 ? '01 Pendent' : '02 Pagat';
       }
     });
@@ -9656,8 +9659,9 @@ function clientTotal(c) {
 }
 
 function clientPending(c) {
-  const total   = clientTotal(c);
-  const paid    = Math.round((c.paid || 0) * 100) / 100;
+  const total = clientTotal(c);
+  const paid  = Math.round((c.paid || 0) * 100) / 100;
+  if (paid >= total) return 0; // si ha pagat igual o més, pendent = 0
   return Math.max(0, Math.round((total - paid) * 100) / 100);
 }
 
@@ -10498,42 +10502,57 @@ function buildClientSessionsForm(c, globalDiscount) {
     <div class="form-grid">
       <div class="form-group">
         <label>SESSIONS CONTRACTADES</label>
-        <input type="number" id="f-sessions" value="${sessions}" min="0" max="99" oninput="updatePriceHint()" />
+        <input type="number" id="ex-sessions" value="${sessions}" min="0" max="99" oninput="updatePriceHintEx()" />
       </div>
       <div class="form-group">
         <label>SESSIONS REALITZADES</label>
-        <input type="number" id="f-done" value="0" min="0" max="199" />
+        <input type="number" id="ex-done" value="0" min="0" max="199" />
       </div>
       <div class="form-group">
         <label>€ PER SESSIÓ (buit = automàtic)</label>
-        <input type="number" id="f-price" value="${price!=null?price:''}" step="0.01" placeholder="Automàtic..." oninput="updatePriceHint()" />
-        <span class="form-hint" id="price-hint">Càlcul automàtic</span>
+        <input type="number" id="ex-price" value="${price!=null?price:''}" step="0.01" placeholder="Automàtic..." oninput="updatePriceHintEx()" />
+        <span class="form-hint" id="ex-price-hint">Càlcul automàtic</span>
       </div>
       <div class="form-group">
         <label>DESCOMPTE (%)</label>
-        <input type="number" id="f-descompte" value="${discount}" min="0" max="100" step="1" placeholder="0" />
+        <input type="number" id="ex-descompte" value="${discount}" min="0" max="100" step="1" placeholder="0" />
         <span class="form-hint">0 = sense descompte</span>
       </div>
       <div class="form-group">
         <label>IMPORT PAGAT (€)</label>
         <div style="display:flex;align-items:center;gap:6px">
-          <input type="number" id="f-paid" value="0" step="0.01" min="0" style="flex:1" />
+          <input type="number" id="ex-paid" value="0" step="0.01" min="0" style="flex:1" />
           <span style="color:var(--text3);font-family:var(--font-mono);font-size:13px">€</span>
         </div>
       </div>
       <div class="form-group">
         <label>VIA DE PAGAMENT</label>
-        <select id="f-via">
+        <select id="ex-via">
           <option value="">—</option>
           ${PAYMENT_METHODS.map(m => `<option value="${m}">${m}</option>`).join('')}
         </select>
       </div>
       <div class="form-group full">
         <label>NOTES</label>
-        <input type="text" id="f-notes" value="${c&&c.notes?escH(c.notes):''}" placeholder="Notes opcionals..." />
+        <input type="text" id="ex-notes" value="${c&&c.notes?escH(c.notes):''}" placeholder="Notes opcionals..." />
       </div>
     </div>
   `;
+}
+
+function updatePriceHintEx() {
+  const sessions = parseInt(document.getElementById('ex-sessions')?.value) || 0;
+  const priceInput = document.getElementById('ex-price')?.value;
+  const descompte = parseFloat(document.getElementById('ex-descompte')?.value) || 0;
+  const hint = document.getElementById('ex-price-hint');
+  if (!hint) return;
+  const cat = document.getElementById('f-cat')?.value || '01';
+  const autoPrice = getPrice(sessions, cat);
+  const price = priceInput ? parseFloat(priceInput) : autoPrice;
+  const base = price * sessions;
+  const total = descompte > 0 ? base * (1 - descompte/100) : base;
+  const dtoText = descompte > 0 ? ' → Amb ' + descompte + '% dto: ' + fmt(total) : '';
+  hint.textContent = 'Preu automàtic: ' + autoPrice.toFixed(2) + ' €/sessió → Base: ' + fmt(base) + dtoText;
 }
 
 function buildClientFullForm(c) {
@@ -10623,7 +10642,7 @@ function saveClientFromModal() {
       toast('Selecciona un client de la llista', 'error'); return;
     }
 
-    const sessionsEl = document.getElementById('f-sessions');
+    const sessionsEl = document.getElementById('ex-sessions');
     if (!sessionsEl) { toast('Omple el formulari de sessions primer', 'error'); return; }
 
     const allMonthKeys = Object.keys(DB.months).sort().reverse();
@@ -10635,13 +10654,13 @@ function saveClientFromModal() {
     if (!found) { toast('Client no trobat', 'error'); return; }
 
     const sessions     = parseInt(sessionsEl.value) || 0;
-    const sessionsDone = parseInt(document.getElementById('f-done')?.value) || 0;
-    const priceRaw     = document.getElementById('f-price')?.value;
+    const sessionsDone = parseInt(document.getElementById('ex-done')?.value) || 0;
+    const priceRaw     = document.getElementById('ex-price')?.value;
     const priceOverride= priceRaw ? parseFloat(priceRaw) : null;
-    const descompte    = parseFloat(document.getElementById('f-descompte')?.value) || 0;
-    const paid         = parseFloat(document.getElementById('f-paid')?.value) || 0;
-    const via          = document.getElementById('f-via')?.value || '';
-    const notes        = document.getElementById('f-notes')?.value.trim() || '';
+    const descompte    = parseFloat(document.getElementById('ex-descompte')?.value) || 0;
+    const paid         = parseFloat(document.getElementById('ex-paid')?.value) || 0;
+    const via          = document.getElementById('ex-via')?.value || '';
+    const notes        = document.getElementById('ex-notes')?.value.trim() || '';
 
     const price   = priceOverride != null ? priceOverride : getPrice(sessions, found.cat);
     const base    = price * sessions;
@@ -10740,19 +10759,33 @@ function confirmDeleteClient(id) {
   const month = getCurrentMonth();
   const client = month.clients.find(c => c.id === id);
   if (!client) return;
-  showModal(`
-    <div class="modal-header">
-      <h3>🗑️ Eliminar Client</h3>
-      <button class="btn-icon" onclick="closeModal()">✕</button>
-    </div>
-    <div class="modal-body confirm-dialog">
-      <p class="confirm-message">Segur que vols eliminar <strong>${escH(client.name)}</strong> del mes ${escH(DB.months[DB.currentMonth].label)}?<br><br>Aquesta acció no es pot desfer.</p>
-    </div>
-    <div class="modal-footer">
-      <button class="btn btn-secondary" onclick="closeModal()">Cancel·lar</button>
-      <button class="btn btn-danger" onclick="deleteClient('${id}')">🗑️ Eliminar</button>
-    </div>
-  `);
+
+  // Check history in other months
+  const otherMonths = Object.keys(DB.months).filter(mk => mk !== DB.currentMonth);
+  const hasHistory  = otherMonths.some(mk =>
+    (DB.months[mk].clients||[]).some(c => c.name.toLowerCase() === client.name.toLowerCase())
+  );
+
+  if (hasHistory) {
+    showModal(
+      '<div class="modal-header"><h3>\u26a0\ufe0f No es pot eliminar</h3><button class="btn-icon" onclick="closeModal()">\u2715</button></div>' +
+      '<div class="modal-body confirm-dialog">' +
+      '<p class="confirm-message">El client <strong>' + escH(client.name) + '</strong> t\u00e9 historial en altres mesos i no es pot eliminar per no perdre les dades hist\u00f2riques.</p>' +
+      '<p style="font-size:12px;color:var(--text2);margin-top:12px">Si no participa en aquest mes, pots deixar-lo amb 0 sessions.</p>' +
+      '</div>' +
+      '<div class="modal-footer"><button class="btn btn-primary" onclick="closeModal()">Ent\u00e8s</button></div>'
+    );
+    return;
+  }
+
+  showModal(
+    '<div class="modal-header"><h3>\uD83D\uDDD1\uFE0F Eliminar Client</h3><button class="btn-icon" onclick="closeModal()">\u2715</button></div>' +
+    '<div class="modal-body confirm-dialog"><p class="confirm-message">Eliminar <strong>' + escH(client.name) + '</strong> del mes ' + escH(DB.months[DB.currentMonth]?.label||'') + '?<br><br>Aquesta acci\u00f3 no es pot desfer.</p></div>' +
+    '<div class="modal-footer">' +
+    '<button class="btn btn-secondary" onclick="closeModal()">Cancel\u00b7lar</button>' +
+    '<button class="btn btn-danger" onclick="deleteClient(\'' + id + '\')">\uD83D\uDDD1\uFE0F Eliminar</button>' +
+    '</div>'
+  );
 }
 
 function deleteClient(id) {
@@ -12772,7 +12805,7 @@ function renderAjuda(container, actions) {
   <div style="max-width:860px;margin:0 auto;display:flex;flex-direction:column;gap:16px">
 
     <div style="background:var(--accent-dim2);border:1px solid rgba(200,240,69,0.25);border-radius:var(--radius);padding:22px 26px">
-      <div style="font-family:var(--font-syne);font-weight:800;font-size:20px;color:var(--accent);margin-bottom:6px">GOALS — Gestió de Pagaments v7.0</div>
+      <div style="font-family:var(--font-syne);font-weight:800;font-size:20px;color:var(--accent);margin-bottom:6px">GOALS — Gestió de Pagaments v7.1</div>
       <div style="color:var(--text2);font-size:13.5px;line-height:1.7">
         Aplicació per gestionar clients, sessions, pagaments i finances del centre.
         Les dades es guarden localment al navegador i es sincronitzen automàticament amb Google Drive quan estàs connectat.
@@ -12806,6 +12839,7 @@ function renderAjuda(container, actions) {
       ['Banner Resultat Net', 'Mostra: Cobrat − Gastos = Resultat net, en verd si positiu i vermell si negatiu. S\'actualitza en temps real.'],
       ['Ordenar columnes', 'Clic a qualsevol capçalera per ordenar. Segon clic per invertir (↑↓). L\'ordre de categories (01→05) sempre es manté per sobre de qualsevol altre criteri.'],
       ['Filtrar i cercar', 'Filtres "Tots / Pagats / Pendents" + filtres per categoria + barra de cerca per nom amb ressaltat en groc.'],
+      ['Document de client (📄)', 'Botó 📄 a cada fila (📎 quan ja té document). Permet adjuntar un fitxer de seguiment d\'entrenaments (Word, PDF o imatge, màx 5MB) per a cada client i mes de forma independent. Es pot veure, descarregar o eliminar en qualsevol moment.'],
       ['Historial del client (📋)', 'Botó 📋 a cada fila. Mostra tots els mesos en els quals ha aparegut el client, amb sessions, imports i estat de cada mes, i el total acumulat.'],
       ['Notificació de pendents (🔔)', 'Campana 🔔 a la topbar amb badge numèric. Un clic obre la llista de clients pendents del mes ordenada per import.'],
     ])}
@@ -12906,7 +12940,7 @@ function renderAjuda(container, actions) {
     ])}
 
     <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:18px 20px;text-align:center;color:var(--text3);font-size:11px;font-family:var(--font-mono);line-height:2">
-      GOALS v7.0 · Local: goals_data_v3 · Núvol: Google Drive (goals_data.json)<br>
+      GOALS v7.1 · Local: goals_data_v3 · Núvol: Google Drive (goals_data.json)<br>
       Backup manual recomanat mensualment · Tecla Esc per tancar modals
     </div>
 
@@ -13276,6 +13310,7 @@ function renderMobileResum(container) {
 // GOOGLE DRIVE SYNC
 // ══════════════════════════════════════════════
 
+const APP_VERSION = 'v7.1';
 const GDRIVE_CLIENT_ID = '213127646668-v2lts4jl101jpq6m279s4cr2ps9ga3j5.apps.googleusercontent.com';
 const GDRIVE_SCOPE     = 'https://www.googleapis.com/auth/drive.appdata';
 const GDRIVE_FILE_NAME = 'goals_data.json';
