@@ -774,7 +774,7 @@
   <div id="splash-screen" style="display:none;position:fixed;inset:0;background:#0f0f0f;z-index:9999;flex-direction:column;align-items:center;justify-content:center;gap:0">
     <img src="icon-512.png" style="width:120px;height:120px;border-radius:24px;margin-bottom:28px" />
     <div style="font-family:'Syne',sans-serif;font-weight:800;font-size:28px;color:#c8f045;margin-bottom:6px">GOALS</div>
-    <div style="font-family:'DM Mono',monospace;font-size:11px;color:#555;letter-spacing:1px;margin-bottom:48px">GESTIÓ DE PAGAMENTS · v7.1</div>
+    <div style="font-family:'DM Mono',monospace;font-size:11px;color:#555;letter-spacing:1px;margin-bottom:48px">GESTIÓ DE PAGAMENTS · v7.2</div>
     <div id="splash-content" style="display:flex;flex-direction:column;align-items:center;gap:12px;width:280px">
       <!-- Content injected by JS -->
     </div>
@@ -784,7 +784,7 @@
     <div class="sidebar-logo">
       <h1>GOALS</h1>
       <span>GESTIÓ DE PAGAMENTS</span>
-      <span id="sidebar-version" style="font-size:9px;color:#333;font-family:'DM Mono',monospace;letter-spacing:0.5px;margin-top:2px">v7.1</span>
+      <span id="sidebar-version" style="font-size:9px;color:#333;font-family:'DM Mono',monospace;letter-spacing:0.5px;margin-top:2px">v7.2</span>
     </div>
 
     <div class="sidebar-section">
@@ -950,28 +950,34 @@ function getPrice(sessions, cat) {
 
 const MONTH_NAMES = ['Gener','Febrer','Març','Abril','Maig','Juny','Juliol','Agost','Setembre','Octubre','Novembre','Desembre'];
 
+function recalculateAllEstats(data) {
+  Object.keys(data.months || {}).forEach(mk => {
+    (data.months[mk].clients || []).forEach(c => {
+      if (!c.cat) c.cat = '01';
+      if (c.descompte == null) c.descompte = 0;
+      if (NOTES_BLACKLIST && NOTES_BLACKLIST.has && c.notes) {
+        if (NOTES_BLACKLIST.has(c.notes.trim().toLowerCase())) c.notes = '';
+      }
+      if (c.estat !== '99 No Aplica') {
+        const price   = c.priceOverride != null ? c.priceOverride : getPrice(c.sessions, c.cat);
+        const base    = price * c.sessions;
+        const total   = c.descompte > 0 ? base * (1 - c.descompte / 100) : base;
+        const totalR  = Math.round(total * 100) / 100;
+        const paidR   = Math.round((c.paid || 0) * 100) / 100;
+        const pending = paidR >= totalR ? 0 : Math.max(0, Math.round((totalR - paidR) * 100) / 100);
+        c.estat = pending > 0 ? '01 Pendent' : '02 Pagat';
+      }
+    });
+  });
+  return data;
+}
+
 function loadData() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) {
       const data = JSON.parse(raw);
-      // Recalcular estat per incoherències guardades
-      Object.keys(data.months || {}).forEach(mk => {
-        (data.months[mk].clients || []).forEach(c => {
-          if (!c.cat) c.cat = '01';
-          if (c.descompte == null) c.descompte = 0;
-          if (c.notes === "Pendent pagament" || c.notes === "Pendent de pagament") c.notes = "";
-          if (c.estat !== '99 No Aplica') {
-            const price = c.priceOverride != null ? c.priceOverride : getPrice(c.sessions, c.cat);
-            const base  = price * c.sessions;
-            const total = c.descompte > 0 ? base * (1 - c.descompte / 100) : base;
-            const paidR2 = Math.round((c.paid||0)*100)/100; const totalR2 = Math.round(total*100)/100;
-            const pending = paidR2 >= totalR2 ? 0 : Math.max(0, Math.round((totalR2 - paidR2)*100)/100);
-            c.estat = pending > 0 ? '01 Pendent' : '02 Pagat';
-          }
-        });
-      });
-      return data;
+      return recalculateAllEstats(data);
     }
   } catch(e) {}
   return getDefaultData();
@@ -9610,32 +9616,21 @@ function getDefaultData() {
   ]
 };
   // Afegir camps nous que podrien faltar als clients antics
-  // i recalcular l'estat per evitar incoherències (pagat però amb pendent > 0)
   Object.keys(data.months).forEach(mk => {
     (data.months[mk].clients || []).forEach(c => {
-      if (!c.cat)      c.cat = '01';
-      if (!c.genere)   c.genere = '';
-      if (!c.mobil)    c.mobil = '';
-      if (!c.email)    c.email = '';
-      if (c.descompte == null) c.descompte = 0;
-      // Recalcular estat automàticament
-      if (c.estat !== '99 No Aplica') {
-        const price = c.priceOverride != null ? c.priceOverride : getPrice(c.sessions, c.cat);
-        const base  = price * c.sessions;
-        const total = c.descompte > 0 ? base * (1 - c.descompte / 100) : base;
-        const paidR3 = Math.round((c.paid||0)*100)/100; const totalR3 = Math.round(total*100)/100;
-        const pending = paidR3 >= totalR3 ? 0 : Math.max(0, Math.round((totalR3 - paidR3)*100)/100);
-        c.estat = pending > 0 ? '01 Pendent' : '02 Pagat';
-      }
+      if (!c.genere) c.genere = '';
+      if (!c.mobil)  c.mobil  = '';
+      if (!c.email)  c.email  = '';
     });
   });
-  return {
+  const result = {
     currentMonth: data.currentMonth,
     tarifes: {},
     descomptes: {},
     months: data.months,
     waitingList: data.waitingList
   };
+  return recalculateAllEstats(result);
 }
 
 // ══════════════════════════════════════════════
@@ -12805,7 +12800,7 @@ function renderAjuda(container, actions) {
   <div style="max-width:860px;margin:0 auto;display:flex;flex-direction:column;gap:16px">
 
     <div style="background:var(--accent-dim2);border:1px solid rgba(200,240,69,0.25);border-radius:var(--radius);padding:22px 26px">
-      <div style="font-family:var(--font-syne);font-weight:800;font-size:20px;color:var(--accent);margin-bottom:6px">GOALS — Gestió de Pagaments v7.1</div>
+      <div style="font-family:var(--font-syne);font-weight:800;font-size:20px;color:var(--accent);margin-bottom:6px">GOALS — Gestió de Pagaments v7.2</div>
       <div style="color:var(--text2);font-size:13.5px;line-height:1.7">
         Aplicació per gestionar clients, sessions, pagaments i finances del centre.
         Les dades es guarden localment al navegador i es sincronitzen automàticament amb Google Drive quan estàs connectat.
@@ -12940,7 +12935,7 @@ function renderAjuda(container, actions) {
     ])}
 
     <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:18px 20px;text-align:center;color:var(--text3);font-size:11px;font-family:var(--font-mono);line-height:2">
-      GOALS v7.1 · Local: goals_data_v3 · Núvol: Google Drive (goals_data.json)<br>
+      GOALS v7.2 · Local: goals_data_v3 · Núvol: Google Drive (goals_data.json)<br>
       Backup manual recomanat mensualment · Tecla Esc per tancar modals
     </div>
 
@@ -13310,7 +13305,7 @@ function renderMobileResum(container) {
 // GOOGLE DRIVE SYNC
 // ══════════════════════════════════════════════
 
-const APP_VERSION = 'v7.1';
+const APP_VERSION = 'v7.2';
 const GDRIVE_CLIENT_ID = '213127646668-v2lts4jl101jpq6m279s4cr2ps9ga3j5.apps.googleusercontent.com';
 const GDRIVE_SCOPE     = 'https://www.googleapis.com/auth/drive.appdata';
 const GDRIVE_FILE_NAME = 'goals_data.json';
@@ -13411,7 +13406,7 @@ async function gdriveLoadOrCreate() {
 
       if (driveDate > localDate || !localRaw) {
         // Drive és més nou — carregar del Drive
-        DB = driveData;
+        DB = recalculateAllEstats(driveData);
         // Recalcular estats
         Object.keys(DB.months || {}).forEach(mk => {
           (DB.months[mk].clients || []).forEach(c => {
