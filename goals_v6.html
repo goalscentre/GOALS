@@ -918,17 +918,9 @@ const CATEGORIES = [
 
 // ── TARIFES DINÀMIQUES PER CATEGORIA ──
 // DB.tarifes = { '01': [...rangs], '02': [...rangs], ... }
-const DEFAULT_TARIFES_CAT = [
-  {from:1,  to:4,  price:5.50},
-  {from:5,  to:6,  price:5.40},
-  {from:7,  to:8,  price:5.00},
-  {from:9,  to:11, price:5.00},
-  {from:12, to:13, price:4.58},
-  {from:14, to:15, price:4.53},
-  {from:16, to:17, price:4.41},
-  {from:18, to:999,price:4.41},
-];
-
+// Tarifes — sempre des de DB.tarifes (configurat a la pantalla Tarifes)
+// No hi ha tarifes hardcoded. Si una categoria no té tarifes configurades,
+// el preu és 0 i es mostra un avís per configurar-les.
 function getTarifesForCat(cat) {
   const catId = cat || '01';
   try {
@@ -936,21 +928,45 @@ function getTarifesForCat(cat) {
       return DB.tarifes[catId];
     }
   } catch(e) {}
-  return DEFAULT_TARIFES_CAT.map(t => ({...t}));
+  return []; // sense tarifes configurades
 }
 
 function getPrice(sessions, cat) {
   if (!sessions || sessions <= 0) return 0;
   const tarifes = getTarifesForCat(cat || '01');
+  if (!tarifes.length) return 0; // no configurat
   for (const t of tarifes) {
     if (sessions >= t.from && sessions <= t.to) return t.price;
   }
-  return tarifes[tarifes.length - 1]?.price || 5.5;
+  return tarifes[tarifes.length - 1]?.price || 0;
+}
+
+function hasTarifes(cat) {
+  const catId = cat || '01';
+  return !!(DB && DB.tarifes && DB.tarifes[catId] && DB.tarifes[catId].length > 0);
 }
 
 const MONTH_NAMES = ['Gener','Febrer','Març','Abril','Maig','Juny','Juliol','Agost','Setembre','Octubre','Novembre','Desembre'];
 
 function recalculateAllEstats(data) {
+  // Migració: congelar preus dels mesos tancats que no els tinguen congelats
+  Object.keys(data.months || {}).forEach(mk => {
+    const m = data.months[mk];
+    if (m.closed && m.tarifesSnapshot) {
+      (m.clients || []).forEach(c => {
+        if (c.priceOverride == null && c.sessions > 0) {
+          // Usar el snapshot del mes per congelar el preu
+          const snap = m.tarifesSnapshot[c.cat || '01'] || [];
+          for (const t of snap) {
+            if (c.sessions >= t.from && c.sessions <= t.to) {
+              c.priceOverride = t.price;
+              break;
+            }
+          }
+        }
+      });
+    }
+  });
   Object.keys(data.months || {}).forEach(mk => {
     (data.months[mk].clients || []).forEach(c => {
       if (!c.cat) c.cat = '01';
@@ -9820,7 +9836,18 @@ function renderClientsStats(panel, actions) {
 
   if (statsHidden) { panel.innerHTML = ''; return; }
 
+  // Warning if any active client category has no tarifes configured
+  const catsWithoutTarifes = [...new Set(active.map(c=>c.cat||'01'))].filter(cat => !hasTarifes(cat));
+  const tarifesWarning = catsWithoutTarifes.length > 0
+    ? `<div style="background:rgba(255,80,80,0.1);border:1px solid rgba(255,80,80,0.3);border-radius:var(--radius-sm);padding:10px 14px;margin-bottom:12px;font-size:12px;color:var(--red);display:flex;align-items:center;gap:10px">
+        <span style="font-size:16px">⚠️</span>
+        <span>Les categories <strong>${catsWithoutTarifes.join(', ')}</strong> no tenen tarifes configurades — els clients mostren 0€.
+        <a onclick="navigate('tarifes')" style="color:var(--red);text-decoration:underline;cursor:pointer;margin-left:6px">Configura les tarifes →</a></span>
+       </div>`
+    : '';
+
   panel.innerHTML = `
+    ${tarifesWarning}
     ${isClosed ? `<div class="closed-banner" style="margin-bottom:12px">
       <div class="closed-banner-text">🔒 <strong>Mes tancat.</strong> Només lectura.</div>
       <button class="btn btn-sm btn-secondary" style="color:var(--blue)" onclick="toggleClosedMonth(false)">🔓 Re-obrir</button>
@@ -10308,14 +10335,25 @@ function toggleClosedMonth(close) {
 
 function confirmCloseMonth() {
   const month = getCurrentMonth();
-  // Snapshot de les tarifes en tancar el mes
+
+  // 1. Snapshot de les tarifes actuals
   month.tarifesSnapshot = {};
   CATEGORIES.forEach(cat => {
     month.tarifesSnapshot[cat.id] = getTarifesForCat(cat.id).map(t => ({...t}));
   });
+
+  // 2. Congelar el preu de cada client sense priceOverride
+  // Així si canvien les tarifes en el futur, els mesos tancats no es veuen afectats
+  (month.clients || []).forEach(c => {
+    if (c.priceOverride == null && c.sessions > 0) {
+      const price = getPrice(c.sessions, c.cat);
+      if (price > 0) c.priceOverride = price; // congela el preu actual
+    }
+  });
+
   month.closed = true;
   saveData(); closeModal(); render();
-  toast('Mes tancat 🔒');
+  toast('Mes tancat i preus congelats 🔒');
 }
 
 // ── COPIAR CLIENTS A NOU MES ──
@@ -10933,12 +10971,15 @@ function renderTarifeCatPanel() {
   const tabs = CATEGORIES.map(c => {
     const isActive = c.id === cat;
     const hasCustom = DB.tarifes && DB.tarifes[c.id] && DB.tarifes[c.id].length > 0;
+    const isConfigured = hasCustom;
     return '<div onclick="switchTarifeCat(\'' + c.id + '\')" style="padding:9px 16px;cursor:pointer;border-bottom:2px solid ' +
       (isActive ? 'var(--accent)' : 'transparent') + ';color:' + (isActive ? 'var(--accent)' : 'var(--text2)') +
       ';font-size:13px;font-weight:' + (isActive ? '600' : '400') + ';white-space:nowrap;transition:all 0.15s;display:flex;align-items:center;gap:6px">' +
       '<span class="' + c.cls + ' cat-badge">' + c.id + '</span>' +
       c.short +
-      (hasCustom ? '<span style="width:6px;height:6px;border-radius:50%;background:var(--accent);flex-shrink:0"></span>' : '') +
+      (isConfigured
+        ? '<span style="width:6px;height:6px;border-radius:50%;background:var(--accent);flex-shrink:0" title="Configurat"></span>'
+        : '<span style="width:6px;height:6px;border-radius:50%;background:var(--red);flex-shrink:0" title="Sense tarifes"></span>') +
       '</div>';
   }).join('');
 
@@ -10949,6 +10990,7 @@ function renderTarifeCatPanel() {
     '<div style="background:var(--surface);border:1px solid var(--border);border-top:none;border-radius:0 0 var(--radius) var(--radius);padding:20px;margin-bottom:16px">' +
     '<div style="font-size:11px;color:var(--text3);font-family:var(--font-mono);margin-bottom:12px;letter-spacing:0.5px">' +
     'CATEGORIA: ' + (CATEGORIES.find(c => c.id === cat)?.label || cat) +
+    (!hasTarifes(cat) ? ' <span style="color:var(--red);font-size:10px">⚠ SENSE TARIFES — els clients mostraran 0€</span>' : '') +
     '</div>' +
     '<div class="table-wrap" style="margin-bottom:16px">' +
     '<table><thead><tr>' +
@@ -10963,7 +11005,7 @@ function renderTarifeCatPanel() {
     '<div style="display:flex;gap:10px;flex-wrap:wrap">' +
     (tarifes.length < 15 ? '<button class="btn btn-secondary" onclick="addTarifeRow()">+ Afegir Rang</button>' : '') +
     '<button class="btn btn-primary" onclick="saveTarifes()">&#x1F4BE; Guardar categoria ' + cat + '</button>' +
-    '<button class="btn btn-secondary" onclick="resetTarifes()">\u21BA Restablir per defecte</button>' +
+    '<button class="btn btn-secondary" style="color:var(--red)" onclick="resetTarifes()">\uD83D\uDDD1\uFE0F Eliminar tarifes categoria ' + cat + '</button>' +
     '</div>' +
     '</div>';
 }
@@ -10992,7 +11034,11 @@ function renderTarifesRows(tarifes, cat) {
 
 function getEditingTarifesForCat(cat) {
   if (!_editTarifes[cat]) {
-    _editTarifes[cat] = getTarifesForCat(cat).map(t => ({...t}));
+    const existing = getTarifesForCat(cat);
+    // Si no hi ha tarifes, crea un rang inicial buit per editar
+    _editTarifes[cat] = existing.length > 0
+      ? existing.map(t => ({...t}))
+      : [{from:1, to:999, price:0}];
   }
   return _editTarifes[cat];
 }
@@ -11020,8 +11066,12 @@ function addTarifeRow() {
   const t = getEditingTarifesForCat(_tarifesCatActive);
   if (t.length >= 15) return;
   const last = t[t.length - 1];
-  last.to = last.from + 3;
-  t.push({ from: last.to + 1, to: 999, price: last.price });
+  if (last.to === 999) {
+    last.to = last.from + 3;
+    t.push({ from: last.to + 1, to: 999, price: last.price });
+  } else {
+    t.push({ from: last.to + 1, to: 999, price: last.price });
+  }
   renderTarifeCatPanel();
 }
 
@@ -11049,20 +11099,22 @@ function saveTarifes() {
   }
   if (!DB.tarifes) DB.tarifes = {};
   DB.tarifes[cat] = t;
-  delete _editTarifes[cat]; // clear editing cache
+  delete _editTarifes[cat];
   saveData();
   toast('Tarifes de la categoria ' + cat + ' guardades \u2713');
-  renderTarifeCatPanel(); // refresh to show dot indicator
+  renderTarifeCatPanel();
 }
 
 function resetTarifes() {
   const cat = _tarifesCatActive;
-  if (!DB.tarifes) DB.tarifes = {};
-  delete DB.tarifes[cat];
-  delete _editTarifes[cat];
-  saveData();
-  toast('Tarifes de categoria ' + cat + ' restablides \u2713');
-  renderTarifeCatPanel();
+  if (confirm('Eliminar les tarifes de la categoria ' + cat + '? Els clients d\'aquesta categoria mostraran preu 0 fins que configures noves tarifes.')) {
+    if (!DB.tarifes) DB.tarifes = {};
+    delete DB.tarifes[cat];
+    delete _editTarifes[cat];
+    saveData();
+    toast('Tarifes de categoria ' + cat + ' eliminades');
+    renderTarifeCatPanel();
+  }
 }
 
 function renderGastos(container, actions) {
