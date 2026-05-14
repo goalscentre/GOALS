@@ -770,6 +770,15 @@
 </head>
 <body>
 <div id="app">
+  <!-- SPLASH SCREEN -->
+  <div id="splash-screen" style="display:none;position:fixed;inset:0;background:#0f0f0f;z-index:9999;flex-direction:column;align-items:center;justify-content:center;gap:0">
+    <img src="icon-512.png" style="width:120px;height:120px;border-radius:24px;margin-bottom:28px" />
+    <div style="font-family:'Syne',sans-serif;font-weight:800;font-size:28px;color:#c8f045;margin-bottom:6px">GOALS</div>
+    <div style="font-family:'DM Mono',monospace;font-size:11px;color:#555;letter-spacing:1px;margin-bottom:48px">GESTIÓ DE PAGAMENTS</div>
+    <div id="splash-content" style="display:flex;flex-direction:column;align-items:center;gap:12px;width:280px">
+      <!-- Content injected by JS -->
+    </div>
+  </div>
   <!-- SIDEBAR -->
   <nav id="sidebar">
     <div class="sidebar-logo">
@@ -10480,7 +10489,7 @@ function prefillExistingClient(name) {
 }
 
 function buildClientSessionsForm(c, globalDiscount) {
-  const sessions = c ? c.sessions : 8;
+  const sessions = c ? c.sessions : 0;
   const price = c && c.priceOverride != null ? c.priceOverride : null;
   const discount = globalDiscount || (c ? (c.descompte||0) : 0);
   return `
@@ -10526,7 +10535,7 @@ function buildClientSessionsForm(c, globalDiscount) {
 }
 
 function buildClientFullForm(c) {
-  c = c || { name:'', sessions:8, sessionsDone:0, priceOverride:null, paid:0, via:'', cat:'', genere:'', mobil:'', email:'', notes:'', descompte:0 };
+  c = c || { name:'', sessions:0, sessionsDone:0, priceOverride:null, paid:0, via:'', cat:'', genere:'', mobil:'', email:'', notes:'', descompte:0 };
   return `
     <div class="form-grid">
       <div class="form-group full">
@@ -13198,6 +13207,7 @@ function gdriveAction() {
       gdriveToken  = null;
       gdriveFileId = null;
       localStorage.removeItem('gdrive_token');
+      localStorage.removeItem('goals_gdrive_was_connected');
       gdriveSetStatus('offline', 'No connectat a Google Drive');
     }
   } else {
@@ -13369,13 +13379,109 @@ function changeMonth(val) {
   else render();
 }
 
-initViewMode();
-if (!isMobileView) render();
+function showSplash(content) {
+  const splash = document.getElementById('splash-screen');
+  splash.style.display = 'flex';
+  document.getElementById('splash-content').innerHTML = content;
+}
+
+function hideSplash() {
+  const splash = document.getElementById('splash-screen');
+  splash.style.transition = 'opacity 0.4s';
+  setTimeout(() => { splash.style.opacity = '0'; }, 50);
+  setTimeout(() => { splash.style.display = 'none'; splash.style.opacity = '1'; }, 500);
+}
+
+function launchApp() {
+  hideSplash();
+  initViewMode();
+  if (!isMobileView) render();
+}
+
+async function initApp() {
+  showSplash('<div style="color:#555;font-size:13px;font-family:var(--font-mono)">Iniciant...</div>');
+
+  if (typeof google === 'undefined' || !google.accounts) {
+    showSplash(
+      '<div style="color:#e57;font-size:13px;font-family:var(--font-mono);text-align:center;margin-bottom:8px">\u26a0 Sense connexi\u00f3 a internet</div>' +
+      '<div style="color:#555;font-size:11px;font-family:var(--font-mono);text-align:center;margin-bottom:20px">Es mostraran les dades locals</div>' +
+      '<button onclick="launchApp()" style="background:var(--accent);color:#0f0f0f;border:none;padding:12px 28px;border-radius:10px;font-family:var(--font-sans);font-size:15px;font-weight:600;cursor:pointer;width:100%">Continuar offline</button>'
+    );
+    return;
+  }
+
+  const hadToken = localStorage.getItem('goals_gdrive_was_connected');
+  if (hadToken) {
+    showSplash('<div style="color:#555;font-size:13px;font-family:var(--font-mono)">\u2601\ufe0f Connectant al Drive...</div>');
+    try {
+      await gdriveConnectSilent();
+      return;
+    } catch(e) {
+      // fall through to connect screen
+    }
+  }
+
+  showConnectScreen();
+}
+
+function showConnectScreen() {
+  showSplash(
+    '<div style="color:#888;font-size:13px;font-family:var(--font-sans);text-align:center;line-height:1.6;margin-bottom:16px">Connecta amb Google Drive per<br>carregar les dades actualitzades</div>' +
+    '<button onclick="gdriveConnectFromSplash()" style="background:var(--accent);color:#0f0f0f;border:none;padding:14px 28px;border-radius:10px;font-family:var(--font-sans);font-size:15px;font-weight:600;cursor:pointer;width:100%;display:flex;align-items:center;justify-content:center;gap:10px">' +
+    '<span>\u2601\ufe0f</span> Connectar amb Google Drive</button>' +
+    '<button onclick="launchApp()" style="background:transparent;color:#444;border:1px solid #333;padding:11px 28px;border-radius:10px;font-family:var(--font-sans);font-size:13px;cursor:pointer;width:100%;margin-top:8px">Continuar offline</button>'
+  );
+}
+
+async function gdriveConnectSilent() {
+  return new Promise((resolve, reject) => {
+    const client = google.accounts.oauth2.initTokenClient({
+      client_id: GDRIVE_CLIENT_ID,
+      scope: GDRIVE_SCOPE,
+      prompt: '',
+      callback: async (resp) => {
+        if (resp.error) { reject(resp.error); return; }
+        gdriveToken = resp.access_token;
+        localStorage.setItem('goals_gdrive_was_connected', '1');
+        showSplash('<div style="color:var(--accent);font-size:13px;font-family:var(--font-mono)">\u2601\ufe0f Carregant dades...</div>');
+        await gdriveLoadOrCreate();
+        launchApp();
+        resolve();
+      }
+    });
+    client.requestAccessToken();
+  });
+}
+
+function gdriveConnectFromSplash() {
+  showSplash('<div style="color:#555;font-size:13px;font-family:var(--font-mono)">\u2601\ufe0f Connectant...</div>');
+  const client = google.accounts.oauth2.initTokenClient({
+    client_id: GDRIVE_CLIENT_ID,
+    scope: GDRIVE_SCOPE,
+    callback: async (resp) => {
+      if (resp.error) {
+        showSplash(
+          '<div style="color:#e57;font-size:13px;text-align:center;margin-bottom:16px">Error: ' + resp.error + '</div>' +
+          '<button onclick="gdriveConnectFromSplash()" style="background:var(--accent);color:#0f0f0f;border:none;padding:12px 28px;border-radius:10px;font-size:14px;font-weight:600;cursor:pointer;width:100%">Tornar a intentar</button>' +
+          '<button onclick="launchApp()" style="background:transparent;color:#444;border:1px solid #333;padding:10px 28px;border-radius:10px;font-size:13px;cursor:pointer;width:100%;margin-top:8px">Continuar offline</button>'
+        );
+        return;
+      }
+      gdriveToken = resp.access_token;
+      localStorage.setItem('goals_gdrive_was_connected', '1');
+      showSplash('<div style="color:var(--accent);font-size:13px;font-family:var(--font-mono)">\u2601\ufe0f Carregant dades del Drive...</div>');
+      await gdriveLoadOrCreate();
+      launchApp();
+    }
+  });
+  client.requestAccessToken();
+}
+
+window.addEventListener('load', () => { setTimeout(initApp, 500); });
 
 window.addEventListener('resize', () => {
   const shouldBeMobile = detectMobile();
   if (shouldBeMobile && !isMobileView) activateMobileView();
-  // Don't auto-switch back to desktop on resize (user may have manually chosen mobile)
 });
 </script>
 </body>
