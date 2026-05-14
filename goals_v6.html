@@ -10002,6 +10002,7 @@ function renderClientsTable(container) {
         <td style="white-space:nowrap">
           <div class="row-actions">
             <button class="btn-icon" title="Historial" onclick="openClientHistory('${safeName}')">📋</button>
+            <button class="btn-icon" title="Document" onclick="openClientDocModal('${c.id}')">${c.docData?'📎':'📄'}</button>
             ${!isClosed?`
             <button class="btn-icon" title="Editar"   onclick="openEditClient('${c.id}')">✏️</button>
             <button class="btn-icon" title="Eliminar" onclick="confirmDeleteClient('${c.id}')">🗑️</button>`:''}
@@ -10235,6 +10236,7 @@ function refreshClientRow(id) {
     <td style="white-space:nowrap">
       <div class="row-actions">
         <button class="btn-icon" title="Historial" onclick="openClientHistory('${safeName}')">📋</button>
+        <button class="btn-icon" title="Document" onclick="openClientDocModal('${c.id}')">${c.docData?'📎':'📄'}</button>
         ${!isClosed?`
         <button class="btn-icon" title="Editar"   onclick="openEditClient('${c.id}')">✏️</button>
         <button class="btn-icon" title="Eliminar" onclick="confirmDeleteClient('${c.id}')">🗑️</button>`:''}
@@ -10607,7 +10609,6 @@ function buildClientFullForm(c) {
 }
 
 function saveClientFromModal() {
-  // Determine which tab is active
   const existingTab = document.getElementById('addclient-existing');
   const isExisting = existingTab && existingTab.style.display !== 'none';
 
@@ -10616,7 +10617,15 @@ function saveClientFromModal() {
     if (!sel || !sel.value) { toast('Selecciona un client', 'error'); return; }
     const name = sel.value;
 
-    // Find client data
+    // Verify preview is shown (sessions form loaded)
+    const preview = document.getElementById('existing-preview');
+    if (!preview || preview.style.display === 'none') {
+      toast('Selecciona un client de la llista', 'error'); return;
+    }
+
+    const sessionsEl = document.getElementById('f-sessions');
+    if (!sessionsEl) { toast('Omple el formulari de sessions primer', 'error'); return; }
+
     const allMonthKeys = Object.keys(DB.months).sort().reverse();
     let found = null;
     for (const mk of allMonthKeys) {
@@ -10625,7 +10634,7 @@ function saveClientFromModal() {
     }
     if (!found) { toast('Client no trobat', 'error'); return; }
 
-    const sessions     = parseInt(document.getElementById('f-sessions')?.value) || 0;
+    const sessions     = parseInt(sessionsEl.value) || 0;
     const sessionsDone = parseInt(document.getElementById('f-done')?.value) || 0;
     const priceRaw     = document.getElementById('f-price')?.value;
     const priceOverride= priceRaw ? parseFloat(priceRaw) : null;
@@ -10634,16 +10643,16 @@ function saveClientFromModal() {
     const via          = document.getElementById('f-via')?.value || '';
     const notes        = document.getElementById('f-notes')?.value.trim() || '';
 
-    const price   = priceOverride != null ? priceOverride : getPrice(sessions);
+    const price   = priceOverride != null ? priceOverride : getPrice(sessions, found.cat);
     const base    = price * sessions;
-    const total   = descompte > 0 ? base * (1 - descompte / 100) : base;
-    const pending = Math.max(0, total - paid);
+    const total   = Math.round((descompte > 0 ? base * (1 - descompte / 100) : base) * 100) / 100;
+    const pending = Math.max(0, Math.round((total - Math.round(paid * 100) / 100) * 100) / 100);
     const estat   = pending > 0 ? '01 Pendent' : '02 Pagat';
 
     const newClient = { ...found, id: uid(), sessions, sessionsDone, priceOverride, descompte, paid, via, estat, notes };
     getCurrentMonth().clients.push(newClient);
     saveData(); closeModal(); render();
-    toast(`${escH(name)} afegit al mes ✓`);
+    toast(escH(name) + ' afegit al mes \u2713');
   } else {
     saveClient('');
   }
@@ -10753,8 +10762,116 @@ function deleteClient(id) {
   toast('Client eliminat');
 }
 
-// ══════════════════════════════════════════════
-// PAGE: GASTOS
+// ── DOCUMENTS DE CLIENT ──
+function openClientDocModal(id) {
+  const month = getCurrentMonth();
+  const c = month.clients.find(x => x.id === id);
+  if (!c) return;
+
+  const hasDoc = !!(c.docData);
+  const isImg  = hasDoc && c.docType && c.docType.startsWith('image/');
+  const isPdf  = hasDoc && c.docType === 'application/pdf';
+  const isWord = hasDoc && (c.docType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' || c.docType === 'application/msword');
+
+  showModal(
+    '<div class="modal-header">' +
+    '<h3>\uD83D\uDCCE Document — ' + escH(c.name) + '</h3>' +
+    '<button class="btn-icon" onclick="closeModal()">\u2715</button>' +
+    '</div>' +
+    '<div class="modal-body">' +
+    '<p style="font-size:12px;color:var(--text2);margin-bottom:16px">Document de seguiment d\'entrenaments per a aquest mes. Admet Word, PDF o imatge (m\u00e0x 5MB).</p>' +
+    (hasDoc ? `
+      <div style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:12px 14px;margin-bottom:14px;display:flex;align-items:center;gap:10px">
+        <span style="font-size:20px">${isImg?'🖼️':isPdf?'📄':isWord?'📝':'📎'}</span>
+        <div style="flex:1;min-width:0">
+          <div style="font-size:13px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escH(c.docName||'Document')}</div>
+          <div style="font-size:11px;color:var(--text3);font-family:var(--font-mono)">${c.docType||''}</div>
+        </div>
+        <button class="btn btn-sm btn-secondary" onclick="viewClientDoc('${id}')">👁 Veure</button>
+        <a href="${c.docData}" download="${escH(c.docName||'document')}" class="btn btn-sm btn-secondary">⬇</a>
+      </div>
+      ${isImg ? `<img src="${c.docData}" style="max-width:100%;max-height:200px;border-radius:var(--radius-sm);border:1px solid var(--border);margin-bottom:14px" />` : ''}
+    ` : '<div style="text-align:center;padding:20px;color:var(--text3);font-size:13px">Cap document adjunt</div>') +
+    '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">' +
+    '<label style="cursor:pointer;padding:8px 14px;background:var(--surface2);border:1px solid var(--border2);border-radius:var(--radius-sm);font-size:13px;color:var(--text2);display:inline-flex;align-items:center;gap:6px" onmouseover="this.style.borderColor=\'var(--accent)\';this.style.color=\'var(--accent)\'" onmouseout="this.style.borderColor=\'var(--border2)\';this.style.color=\'var(--text2)\'">' +
+    '📎 ' + (hasDoc ? 'Canviar document' : 'Adjuntar document') +
+    '<input type="file" id="client-doc-input" accept="image/*,application/pdf,.doc,.docx,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document" style="display:none" onchange="previewClientDoc(this,\'' + id + '\')" /></label>' +
+    (hasDoc ? '<button class="btn btn-sm btn-secondary" style="color:var(--red)" onclick="removeClientDoc(\'' + id + '\')">🗑️ Eliminar</button>' : '') +
+    '</div>' +
+    '<div id="client-doc-preview" style="margin-top:10px"></div>' +
+    '</div>' +
+    '<div class="modal-footer">' +
+    '<button class="btn btn-secondary" onclick="closeModal()">Tancar</button>' +
+    '<button class="btn btn-primary" id="client-doc-save-btn" style="display:none" onclick="saveClientDoc(\'' + id + '\')">💾 Guardar</button>' +
+    '</div>'
+  );
+  window._clientDocData = null;
+  window._clientDocName = '';
+  window._clientDocType = '';
+}
+
+function previewClientDoc(input, id) {
+  const file = input.files[0];
+  if (!file) return;
+  if (file.size > 5 * 1024 * 1024) { toast('El fitxer és massa gran (màx 5MB)', 'error'); input.value=''; return; }
+  const reader = new FileReader();
+  reader.onload = e => {
+    window._clientDocData = e.target.result;
+    window._clientDocName = file.name;
+    window._clientDocType = file.type;
+    const preview = document.getElementById('client-doc-preview');
+    const saveBtn = document.getElementById('client-doc-save-btn');
+    if (preview) {
+      if (file.type.startsWith('image/')) {
+        preview.innerHTML = '<img src="' + e.target.result + '" style="max-height:120px;border-radius:var(--radius-sm);border:1px solid var(--border)" />';
+      } else {
+        preview.innerHTML = '<div style="padding:10px;background:var(--surface2);border-radius:var(--radius-sm);border:1px solid var(--border);font-size:12px;color:var(--blue)">📎 ' + escH(file.name) + '</div>';
+      }
+    }
+    if (saveBtn) saveBtn.style.display = 'inline-flex';
+  };
+  reader.readAsDataURL(file);
+}
+
+function saveClientDoc(id) {
+  if (!window._clientDocData) return;
+  const month = getCurrentMonth();
+  const c = month.clients.find(x => x.id === id);
+  if (!c) return;
+  c.docData = window._clientDocData;
+  c.docName = window._clientDocName;
+  c.docType = window._clientDocType;
+  saveData(); closeModal(); render();
+  toast('Document guardat \u2713');
+}
+
+function viewClientDoc(id) {
+  const month = getCurrentMonth();
+  const c = month.clients.find(x => x.id === id);
+  if (!c || !c.docData) return;
+  if (c.docType && c.docType.startsWith('image/')) {
+    showModal(
+      '<div class="modal-header"><h3>\uD83D\uDDBC\uFE0F ' + escH(c.docName||'Document') + '</h3><button class="btn-icon" onclick="closeModal()">\u2715</button></div>' +
+      '<div class="modal-body" style="text-align:center;padding:16px"><img src="' + c.docData + '" style="max-width:100%;max-height:70vh;border-radius:var(--radius-sm)" /></div>' +
+      '<div class="modal-footer"><button class="btn btn-secondary" onclick="closeModal()">Tancar</button><a href="' + c.docData + '" download="' + escH(c.docName||'document') + '" class="btn btn-primary">\u2B07 Descarregar</a></div>'
+    );
+  } else {
+    const blob = dataURItoBlob(c.docData);
+    const url  = URL.createObjectURL(blob);
+    window.open(url, '_blank');
+    setTimeout(() => URL.revokeObjectURL(url), 10000);
+  }
+}
+
+function removeClientDoc(id) {
+  const month = getCurrentMonth();
+  const c = month.clients.find(x => x.id === id);
+  if (!c) return;
+  c.docData = null; c.docName = ''; c.docType = '';
+  saveData(); closeModal();
+  toast('Document eliminat');
+  render();
+}
 // ══════════════════════════════════════════════
 
 // ══════════════════════════════════════════════
