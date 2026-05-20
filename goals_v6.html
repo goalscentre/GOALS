@@ -974,14 +974,29 @@ function recalculateAllEstats(data) {
       if (NOTES_BLACKLIST && NOTES_BLACKLIST.has && c.notes) {
         if (NOTES_BLACKLIST.has(c.notes.trim().toLowerCase())) c.notes = '';
       }
-      if (c.estat !== '99 No Aplica') {
-        const price   = c.priceOverride != null ? c.priceOverride : getPrice(c.sessions, c.cat);
-        const base    = price * c.sessions;
-        const total   = c.descompte > 0 ? base * (1 - c.descompte / 100) : base;
-        const totalR  = Math.round(total * 100) / 100;
-        const paidR   = Math.round((c.paid || 0) * 100) / 100;
-        const pending = paidR >= totalR ? 0 : Math.max(0, Math.round((totalR - paidR) * 100) / 100);
-        c.estat = pending > 0 ? '01 Pendent' : '02 Pagat';
+      if (c.estat !== '99 No Aplica' && c.estat !== '88 Sense Tarifa' && c.estat !== '87 Excés Pagament') {
+        // Sessions = 0 o priceOverride = 0 explícit → No Aplica
+        if (c.sessions === 0 || c.priceOverride === 0) {
+          c.estat = '99 No Aplica';
+        } else {
+          // Sense tarifa configurada i sense preu manual → 88 Sense Tarifa
+          const noTarifa = !hasTarifes(c.cat) && c.priceOverride == null;
+          if (noTarifa) {
+            c.estat = '88 Sense Tarifa';
+          } else {
+            const price  = c.priceOverride != null ? c.priceOverride : getPrice(c.sessions, c.cat);
+            const base   = price * c.sessions;
+            const total  = c.descompte > 0 ? base * (1 - c.descompte / 100) : base;
+            const totalR = Math.round(total * 100) / 100;
+            const paidR  = Math.round((c.paid || 0) * 100) / 100;
+            if (paidR > totalR + 0.01) {
+              c.estat = '87 Excés Pagament';
+            } else {
+              const pending = Math.max(0, Math.round((totalR - paidR) * 100) / 100);
+              c.estat = pending > 0 ? '01 Pendent' : '02 Pagat';
+            }
+          }
+        }
       }
     });
   });
@@ -9662,7 +9677,7 @@ function fmt(n) {
 }
 
 function clientTotal(c) {
-  const price = c.priceOverride != null ? c.priceOverride : getPrice(c.sessions, c.cat);
+  const price = (c.priceOverride != null && c.priceOverride > 0) ? c.priceOverride : getPrice(c.sessions, c.cat);
   const base = price * c.sessions;
   const discount = c.descompte != null ? c.descompte : 0;
   const total = discount > 0 ? base * (1 - discount / 100) : base;
@@ -9684,6 +9699,18 @@ const NOTES_BLACKLIST = new Set([
 function clientNotes(c) {
   if (!c.notes) return '';
   return NOTES_BLACKLIST.has(c.notes.trim().toLowerCase()) ? '' : c.notes;
+}
+
+// Retorna el badge HTML per a l'estat del client
+function clientEstatBadge(c) {
+  switch(c.estat) {
+    case '01 Pendent':        return '<span class="badge badge-orange">⚠ Pendent</span>';
+    case '02 Pagat':          return '<span class="badge badge-green">✓ Pagat</span>';
+    case '87 Excés Pagament': return '<span class="badge badge-red">↑ Excés Pagament</span>';
+    case '88 Sense Tarifa':   return '<span class="badge badge-red">⚙ Sense Tarifa</span>';
+    case '99 No Aplica':      return '<span class="badge badge-gray">— No Aplica</span>';
+    default:                  return '<span class="badge badge-gray">—</span>';
+  }
 }
 
 // ══════════════════════════════════════════════
@@ -9796,7 +9823,7 @@ function getClientsData() {
   const month   = getCurrentMonth();
   const isClosed = !!month.closed;
   const all     = month.clients || [];
-  const active  = all.filter(c => c.estat !== '99 No Aplica');
+  const active  = all.filter(c => c.estat !== '99 No Aplica' && c.estat !== '88 Sense Tarifa' && c.estat !== '87 Excés Pagament');
   const totalSessions = active.reduce((s,c) => s+(c.sessions||0), 0);
   const totalIncome   = active.reduce((s,c) => s+clientTotal(c), 0);
   const totalPaid     = active.reduce((s,c) => s+(c.paid||0), 0);
@@ -9952,11 +9979,12 @@ function renderClientsTable(container) {
       const total   = clientTotal(c);
       const pending = clientPending(c);
       const isPending = c.estat==='01 Pendent';
+      const isAlert   = c.estat==='87 Excés Pagament' || c.estat==='88 Sense Tarifa';
       const pct     = c.sessions>0 ? Math.min(100,(c.sessionsDone||0)/c.sessions*100) : 0;
       const safeName = c.name.replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/"/g,'&quot;');
       rowsHtml += `<tr data-client-id="${c.id}">
         <td>
-          <strong class="${isPending?'client-name-pending':''}">${highlight(c.name)}</strong>
+          <strong class="${isPending?'client-name-pending':isAlert?'client-name-pending':''}" style="${isAlert?'color:var(--red)':''}">${highlight(c.name)}</strong>
           ${clientNotes(c)?`<br><span style="font-size:11px;color:var(--text3);font-style:italic">${escH(clientNotes(c))}</span>`:''}
         </td>
         <td>
@@ -10023,7 +10051,7 @@ function renderClientsTable(container) {
           </select>`:`${c.via?`<span class="via-tag">${escH(c.via.replace('01 ','').replace('02 ',''))}</span>`:'<span style="color:var(--text3)">—</span>'}`}
         </td>
         <td style="white-space:nowrap">
-          ${isPending?'<span class="badge badge-orange">⚠ Pendent</span>':'<span class="badge badge-green">✓ Pagat</span>'}
+          ${clientEstatBadge(c)}
         </td>
         <td style="white-space:nowrap">
           <div class="row-actions">
@@ -10112,12 +10140,21 @@ function updateSessions(id, delta) {
   const month = getCurrentMonth();
   const client = month.clients.find(c => c.id === id);
   if (!client) return;
-  const next = Math.max(0, (client.sessions||0) + delta);
-  client.sessions = next;
-  // Recalculate estat
-  const total   = clientTotal(client);
-  const pending = Math.max(0, total - (client.paid||0));
-  client.estat  = pending > 0 ? '01 Pendent' : '02 Pagat';
+  client.sessions = Math.max(0, (client.sessions||0) + delta);
+  if (client.sessions === 0 || client.priceOverride === 0) {
+    client.estat = '99 No Aplica';
+  } else if (!hasTarifes(client.cat) && client.priceOverride == null) {
+    client.estat = '88 Sense Tarifa';
+  } else {
+    const total  = clientTotal(client);
+    const totalR = Math.round(total * 100) / 100;
+    const paidR  = Math.round((client.paid||0) * 100) / 100;
+    if (paidR > totalR + 0.01) {
+      client.estat = '87 Excés Pagament';
+    } else {
+      client.estat = clientPending(client) > 0 ? '01 Pendent' : '02 Pagat';
+    }
+  }
   saveData();
   refreshClientRow(id);
   updateKPIs();
@@ -10148,10 +10185,18 @@ function updatePaid(id, value) {
   const month = getCurrentMonth();
   const client = month.clients.find(c => c.id === id);
   if (!client) return;
-  client.paid   = Math.max(0, parseFloat(value)||0);
-  const total   = clientTotal(client);
-  const pending = Math.max(0, total - client.paid);
-  client.estat  = pending > 0 ? '01 Pendent' : '02 Pagat';
+  const raw = parseFloat(value);
+  client.paid = (!isFinite(raw) || raw < 0) ? 0 : Math.round(raw * 100) / 100;
+  const total  = clientTotal(client);
+  const paidR  = client.paid;
+  const totalR = Math.round(total * 100) / 100;
+  if (paidR > totalR + 0.01) {
+    client.estat = '87 Excés Pagament';
+    toast(`⚠ Pagament en excés: ${fmt(paidR - totalR)} de més`, 'warning');
+  } else {
+    const pending = Math.max(0, Math.round((totalR - paidR) * 100) / 100);
+    client.estat  = pending > 0 ? '01 Pendent' : '02 Pagat';
+  }
   saveData();
   refreshClientRow(id);
   updateKPIs();
@@ -10162,10 +10207,14 @@ function updateDescompte(id, value) {
   const client = month.clients.find(c => c.id === id);
   if (!client) return;
   client.descompte = Math.min(100, Math.max(0, parseFloat(value)||0));
-  // Recalculate estat with new total
-  const total   = clientTotal(client);
-  const pending = Math.max(0, total - (client.paid||0));
-  client.estat  = pending > 0 ? '01 Pendent' : '02 Pagat';
+  const total  = clientTotal(client);
+  const paidR  = Math.round((client.paid || 0) * 100) / 100;
+  const totalR = Math.round(total * 100) / 100;
+  if (paidR > totalR + 0.01) {
+    client.estat = '87 Excés Pagament';
+  } else {
+    client.estat = clientPending(client) > 0 ? '01 Pendent' : '02 Pagat';
+  }
   saveData();
   refreshClientRow(id);
   updateKPIs();
@@ -10178,12 +10227,98 @@ function refreshClientRow(id) {
   const row = document.querySelector(`tr[data-client-id="${id}"]`);
   if (!row) return;
   const isClosed  = !!month.closed;
-  const price     = c.priceOverride != null ? c.priceOverride : getPrice(c.sessions);
+  const price     = (c.priceOverride != null && c.priceOverride > 0) ? c.priceOverride : getPrice(c.sessions, c.cat);
   const total     = clientTotal(c);
   const pending   = clientPending(c);
   const isPending = c.estat === '01 Pendent';
+  const isAlert   = c.estat === '87 Excés Pagament' || c.estat === '88 Sense Tarifa';
   const pct       = c.sessions > 0 ? Math.min(100,(c.sessionsDone||0)/c.sessions*100) : 0;
   const safeName  = c.name.replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/"/g,'&quot;');
+
+  row.innerHTML = `
+    <td>
+      <strong class="${isPending?'client-name-pending':''}" style="${isAlert?'color:var(--red)':''}">${escH(c.name)}</strong>
+      ${clientNotes(c)?`<br><span style="font-size:11px;color:var(--text3);font-style:italic">${escH(clientNotes(c))}</span>`:''}
+    </td>
+    <td>
+      ${!isClosed?`
+        <div style="display:flex;align-items:center;gap:4px">
+          <button onclick="updateSessions('${c.id}',-1)" style="width:20px;height:20px;border-radius:50%;border:1px solid var(--border2);background:var(--surface2);color:var(--text2);font-size:12px;cursor:pointer;display:flex;align-items:center;justify-content:center" onmouseover="this.style.color='var(--red)';this.style.borderColor='var(--red)'" onmouseout="this.style.color='var(--text2)';this.style.borderColor='var(--border2)'">−</button>
+          <span class="money" style="min-width:20px;text-align:center">${c.sessions}</span>
+          <button onclick="updateSessions('${c.id}',+1)" style="width:20px;height:20px;border-radius:50%;border:1px solid var(--border2);background:var(--surface2);color:var(--text2);font-size:12px;cursor:pointer;display:flex;align-items:center;justify-content:center" onmouseover="this.style.color='var(--accent)';this.style.borderColor='var(--accent)'" onmouseout="this.style.color='var(--text2)';this.style.borderColor='var(--border2)'">+</button>
+        </div>
+      `:`<span class="money">${c.sessions}</span>`}
+    </td>
+    <td>
+      ${!isClosed?`
+        <div style="display:flex;align-items:center;gap:5px">
+          <button onclick="updateSessionsDone('${c.id}',-1)" style="width:22px;height:22px;border-radius:50%;border:1px solid var(--border2);background:var(--surface2);color:var(--text2);font-size:13px;cursor:pointer;display:flex;align-items:center;justify-content:center" onmouseover="this.style.color='var(--red)';this.style.borderColor='var(--red)'" onmouseout="this.style.color='var(--text2)';this.style.borderColor='var(--border2)'">−</button>
+          <div style="text-align:center;min-width:36px">
+            <span class="sessions-done" style="font-size:14px;font-weight:600">${c.sessionsDone||0}</span>
+            <span class="sessions-total"> / ${c.sessions}</span>
+          </div>
+          <button onclick="updateSessionsDone('${c.id}',+1)" style="width:22px;height:22px;border-radius:50%;border:1px solid var(--border2);background:var(--surface2);color:var(--text2);font-size:13px;cursor:pointer;display:flex;align-items:center;justify-content:center" onmouseover="this.style.color='var(--accent)';this.style.borderColor='var(--accent)'" onmouseout="this.style.color='var(--text2)';this.style.borderColor='var(--border2)'">+</button>
+        </div>
+        <div class="progress-wrap" style="margin-top:4px"><div class="progress-bar"><div class="progress-fill" style="width:${pct}%"></div></div></div>
+      `:`
+        <span class="sessions-badge"><span class="sessions-done">${c.sessionsDone||0}</span><span class="sessions-total"> / ${c.sessions}</span></span>
+        <div class="progress-wrap" style="margin-top:4px"><div class="progress-bar"><div class="progress-fill" style="width:${pct}%"></div></div></div>
+      `}
+    </td>
+    <td><span class="money" style="white-space:nowrap">${(c.priceOverride!=null&&c.priceOverride>0)?'<span style="color:var(--blue)">★ </span>':''}${price.toFixed(2)} €</span></td>
+    <td>
+      <span class="money">${fmt(total)}</span>
+      ${(c.descompte||0)>0?`<br><span style="font-size:10px;background:var(--orange-dim);color:var(--orange);padding:1px 5px;border-radius:3px;font-family:var(--font-mono)">−${c.descompte}%</span>`:''}
+    </td>
+    <td>
+      ${!isClosed?`
+        <div style="display:flex;align-items:center;gap:4px">
+          <input type="number" value="${c.paid||0}" min="0" step="0.01"
+            onchange="updatePaid('${c.id}',this.value)"
+            onkeydown="if(event.key==='Enter')this.blur()"
+            style="width:60px;background:var(--surface2);border:1px solid var(--border);color:var(--accent);padding:4px 5px;border-radius:var(--radius-sm);font-family:var(--font-mono);font-size:12px;text-align:right"
+            onfocus="this.style.borderColor='var(--accent)';this.select()"
+            onblur="this.style.borderColor='var(--border)'" />
+          <span style="color:var(--text3);font-size:12px;font-family:var(--font-mono)">€</span>
+        </div>
+      `:`<span class="money money-paid">${fmt(c.paid)}</span>`}
+    </td>
+    <td><span class="money ${pending>0?'money-pending':''}">${pending>0?fmt(pending):'—'}</span></td>
+    <td>
+      ${!isClosed?`
+      <div style="display:flex;align-items:center;gap:3px">
+        <input type="number" value="${c.descompte||0}" min="0" max="100" step="1"
+          onchange="updateDescompte('${c.id}',this.value)"
+          onkeydown="if(event.key==='Enter')this.blur()"
+          style="width:42px;background:var(--surface2);border:1px solid var(--border);color:var(--orange);padding:4px 4px;border-radius:var(--radius-sm);font-family:var(--font-mono);font-size:12px;text-align:right"
+          onfocus="this.style.borderColor='var(--orange)';this.select()"
+          onblur="this.style.borderColor='var(--border)'" />
+        <span style="color:var(--text3);font-size:11px">%</span>
+      </div>`:`${(c.descompte||0)>0?'<span style="font-size:11px;background:var(--orange-dim);color:var(--orange);padding:2px 6px;border-radius:3px;font-family:var(--font-mono)">−'+c.descompte+'%</span>':'<span style="color:var(--text3)">—</span>'}`}
+    </td>
+    <td>
+      ${!isClosed?`
+        <select onchange="updateClientField('${c.id}','via',this.value)"
+          style="background:var(--surface2);border:1px solid var(--border);color:var(--text2);padding:4px 6px;border-radius:var(--radius-sm);font-family:var(--font-mono);font-size:11px;cursor:pointer;appearance:none;min-width:72px">
+          <option value="" ${!c.via?'selected':''}>—</option>
+          <option value="01 Ingrés"  ${c.via==='01 Ingrés' ?'selected':''}>📲 Ingrés</option>
+          <option value="02 Efectiu" ${c.via==='02 Efectiu'?'selected':''}>💵 Efectiu</option>
+        </select>
+      `:`${c.via?`<span class="via-tag">${escH(c.via.replace('01 ','').replace('02 ',''))}</span>`:'<span style="color:var(--text3)">—</span>'}`}
+    </td>
+    <td style="white-space:nowrap">
+      ${clientEstatBadge(c)}
+    </td>
+    <td style="white-space:nowrap">
+      <div class="row-actions">
+        <button class="btn-icon" title="Historial" onclick="openClientHistory('${safeName}')">📋</button>
+        <button class="btn-icon" title="Document" onclick="openClientDocModal('${c.id}')">${c.docData?'📎':'📄'}</button>
+        ${!isClosed?`
+        <button class="btn-icon" title="Editar"   onclick="openEditClient('${c.id}')">✏️</button>
+        <button class="btn-icon" title="Eliminar" onclick="confirmDeleteClient('${c.id}')">🗑️</button>`:''}
+      </div>
+    </td>`;
+}
 
   row.innerHTML = `
     <td>
@@ -10257,7 +10392,7 @@ function refreshClientRow(id) {
       `:`${c.via?`<span class="via-tag">${escH(c.via.replace('01 ','').replace('02 ',''))}</span>`:'<span style="color:var(--text3)">—</span>'}`}
     </td>
     <td style="white-space:nowrap">
-      ${isPending?'<span class="badge badge-orange">⚠ Pendent</span>':'<span class="badge badge-green">✓ Pagat</span>'}
+      ${clientEstatBadge(c)}
     </td>
     <td style="white-space:nowrap">
       <div class="row-actions">
@@ -10272,7 +10407,7 @@ function refreshClientRow(id) {
 
 function updateKPIs() {
   const month        = getCurrentMonth();
-  const active       = (month.clients||[]).filter(c => c.estat !== '99 No Aplica');
+  const active       = (month.clients||[]).filter(c => c.estat !== '99 No Aplica' && c.estat !== '88 Sense Tarifa' && c.estat !== '87 Excés Pagament');
   const totalPaid    = active.reduce((s,c) => s+(c.paid||0), 0);
   const totalIncome  = active.reduce((s,c) => s+clientTotal(c), 0);
   const totalPending = active.reduce((s,c) => s+clientPending(c), 0);
@@ -10403,7 +10538,7 @@ function doExportToMonth() {
   const label = `${MONTH_NAMES[monthIdx]} ${year}`;
 
   const sourceClients = (getCurrentMonth().clients || [])
-    .filter(c => c.estat !== '99 No Aplica');
+    .filter(c => c.estat !== '99 No Aplica' && c.estat !== '88 Sense Tarifa' && c.estat !== '87 Excés Pagament');
 
   if (!DB.months[key]) {
     DB.months[key] = { label, clients: [], gastos: [] };
@@ -11123,7 +11258,7 @@ function renderGastos(container, actions) {
   const total = gastos.reduce((s, g) => s + (g.amount || 0), 0);
   const paid = gastos.filter(g => g.estat === '02 Pagat').reduce((s, g) => s + (g.amount || 0), 0);
   const pending = gastos.filter(g => g.estat === '01 Pendent').reduce((s, g) => s + (g.amount || 0), 0);
-  const clients = (month.clients || []).filter(c => c.estat !== '99 No Aplica');
+  const clients = (month.clients || []).filter(c => c.estat !== '99 No Aplica' && c.estat !== '88 Sense Tarifa' && c.estat !== '87 Excés Pagament');
   const totalIncome = clients.reduce((s, c) => s + (c.paid || 0), 0);
   const net = totalIncome - total;
 
@@ -11561,7 +11696,7 @@ function renderAnual(container, actions) {
   // Construir dades mensuals
   const monthData = filteredKeys.map(k => {
     const m = DB.months[k];
-    const clients = (m.clients || []).filter(c => c.estat !== '99 No Aplica');
+    const clients = (m.clients || []).filter(c => c.estat !== '99 No Aplica' && c.estat !== '88 Sense Tarifa' && c.estat !== '87 Excés Pagament');
     const income = clients.reduce((s, c) => s + (c.paid || 0), 0);
     const contracted = clients.reduce((s, c) => s + clientTotal(c), 0);
     const pending = clients.reduce((s, c) => s + clientPending(c), 0);
@@ -11873,7 +12008,7 @@ function openClientHistory(name) {
   const rows = [];
   allMonths.forEach(k => {
     const m = DB.months[k];
-    const found = (m.clients||[]).filter(c => c.name.toLowerCase() === name.toLowerCase() && c.estat !== '99 No Aplica');
+    const found = (m.clients||[]).filter(c => c.name.toLowerCase() === name.toLowerCase() && c.estat !== '99 No Aplica' && c.estat !== '88 Sense Tarifa' && c.estat !== '87 Excés Pagament');
     found.forEach(c => {
       rows.push({ month: m.label, key: k, sessions: c.sessions, sessionsDone: c.sessionsDone||0,
         total: clientTotal(c), paid: c.paid||0, pending: clientPending(c), estat: c.estat, via: c.via||'' });
@@ -12065,7 +12200,7 @@ function createMonth() {
   let clients = [];
   if (copyFrom && DB.months[copyFrom]) {
     // Copy clients with reset payment status
-    clients = DB.months[copyFrom].clients.filter(c => c.estat !== '99 No Aplica').map(c => ({
+    clients = DB.months[copyFrom].clients.filter(c => c.estat !== '99 No Aplica' && c.estat !== '88 Sense Tarifa' && c.estat !== '87 Excés Pagament').map(c => ({
       ...c, id: uid(), paid: 0, via: c.via || '01 Ingrés', estat: '01 Pendent', sessionsDone: 0
     }));
   }
@@ -12082,7 +12217,7 @@ function createMonth() {
 
 function exportCSV() {
   const month = getCurrentMonth();
-  const clients = (month.clients || []).filter(c => c.estat !== '99 No Aplica');
+  const clients = (month.clients || []).filter(c => c.estat !== '99 No Aplica' && c.estat !== '88 Sense Tarifa' && c.estat !== '87 Excés Pagament');
   const rows = [['Client','Sessions','Sessions Realitzades','€/Sessió','Total','Pagat','Pendent','Via','Estat','Notes']];
   clients.forEach(c => {
     const price = c.priceOverride != null ? c.priceOverride : getPrice(c.sessions);
@@ -12365,7 +12500,7 @@ function buildClientMap() {
         if (c.email)  clientMap[key].email  = c.email;
         if (c.genere) clientMap[key].genere = c.genere;
       }
-      if (c.estat !== '99 No Aplica') {
+      if (c.estat !== '99 No Aplica' && c.estat !== '88 Sense Tarifa' && c.estat !== '87 Excés Pagament') {
         clientMap[key].history.push({ monthKey: mk, monthLabel: m.label, sessions: c.sessions, sessionsDone: c.sessionsDone||0, paid: c.paid||0, total: clientTotal(c), pending: clientPending(c), estat: c.estat, cat: c.cat||'01' });
       }
     });
@@ -12597,7 +12732,7 @@ function renderDetall(container, actions) {
 
   const rows = monthKeys.map(k => {
     const m = DB.months[k];
-    const clients = (m.clients || []).filter(c => c.estat !== '99 No Aplica');
+    const clients = (m.clients || []).filter(c => c.estat !== '99 No Aplica' && c.estat !== '88 Sense Tarifa' && c.estat !== '87 Excés Pagament');
     const paid = clients.reduce((s, c) => s + (c.paid || 0), 0);
     const contracted = clients.reduce((s, c) => s + clientTotal(c), 0);
     const pending = clients.reduce((s, c) => s + clientPending(c), 0);
@@ -12788,7 +12923,7 @@ function renderDetallTab(k, m, clients, pendingClients) {
           <td style="padding:9px 14px;font-family:var(--font-mono);font-size:12px;color:var(--accent)">${fmt(c.paid)}</td>
           <td style="padding:9px 14px;font-family:var(--font-mono);font-size:12px;color:${pending>0?'var(--orange)':'var(--text3)'}">${pending>0?fmt(pending):'—'}</td>
           <td style="padding:9px 14px"><span style="font-size:11px;font-family:var(--font-mono);padding:2px 7px;border-radius:4px;background:var(--surface3);color:var(--text2)">${escH((c.via||'').replace('01 ','').replace('02 ',''))}</span></td>
-          <td style="padding:9px 14px">${isPending?'<span class="badge badge-orange">⚠ Pendent</span>':'<span class="badge badge-green">✓ Pagat</span>'}</td>
+          <td style="padding:9px 14px">${clientEstatBadge(c)}</td>
         </tr>`;
       }).join('')}
     </tbody>
@@ -13093,7 +13228,7 @@ function renderMobileSessions(container) {
 
 function renderMobileSessionsToolbar(toolbar) {
   const month = getCurrentMonth();
-  const active = (month.clients||[]).filter(c => c.estat !== '99 No Aplica');
+  const active = (month.clients||[]).filter(c => c.estat !== '99 No Aplica' && c.estat !== '88 Sense Tarifa' && c.estat !== '87 Excés Pagament');
   const totalPaid    = active.reduce((s,c) => s+(c.paid||0), 0);
   const totalPending = active.reduce((s,c) => s+clientPending(c), 0);
   const pendingCount = active.filter(c => c.estat==='01 Pendent').length;
@@ -13134,7 +13269,7 @@ function renderMobileSessionsToolbar(toolbar) {
 function renderMobileSessionsCards(container) {
   const month = getCurrentMonth();
   const isClosed = !!month.closed;
-  const active = (month.clients||[]).filter(c => c.estat !== '99 No Aplica');
+  const active = (month.clients||[]).filter(c => c.estat !== '99 No Aplica' && c.estat !== '88 Sense Tarifa' && c.estat !== '87 Excés Pagament');
 
   let filtered = active.slice();
   if (mobileSearch) {
@@ -13162,13 +13297,14 @@ function renderMobileSessionsCards(container) {
     const total = clientTotal(c);
     const pending = clientPending(c);
     const isPending = c.estat === '01 Pendent';
+    const isAlert   = c.estat === '87 Excés Pagament' || c.estat === '88 Sense Tarifa';
     const pct = c.sessions > 0 ? Math.min(100, (c.sessionsDone||0)/c.sessions*100) : 0;
 
     cardsHtml += `<div class="mobile-client-card">
-      <div class="mobile-client-name ${isPending?'pending':''}">${escH(c.name)}</div>
+      <div class="mobile-client-name ${isPending?'pending':''}" style="${isAlert?'color:var(--red)':''}">${escH(c.name)}</div>
       <div class="mobile-client-meta">
         <span class="mobile-meta-item">💰 ${fmt(c.paid||0)}</span>
-        ${pending > 0 ? `<span class="mobile-meta-item" style="color:var(--orange)">⚠ ${fmt(pending)}</span>` : '<span class="mobile-meta-item" style="color:var(--accent)">✓ Pagat</span>'}
+        ${clientEstatBadge(c)}
         <span class="mobile-meta-item">${fmt(clientTotal(c))} total</span>
       </div>
       <div style="height:3px;background:var(--surface3);border-radius:2px;margin-bottom:10px;overflow:hidden">
@@ -13465,7 +13601,7 @@ async function gdriveLoadOrCreate() {
             if (!c.cat) c.cat = '01';
             if (c.descompte == null) c.descompte = 0;
             if (c.notes === 'Pendent pagament' || c.notes === 'Pendent de pagament') c.notes = '';
-            if (c.estat !== '99 No Aplica') {
+            if (c.estat !== '99 No Aplica' && c.estat !== '88 Sense Tarifa' && c.estat !== '87 Excés Pagament') {
               const price = c.priceOverride != null ? c.priceOverride : getPrice(c.sessions, c.cat);
               const base  = price * c.sessions;
               const total = c.descompte > 0 ? base * (1 - c.descompte / 100) : base;
