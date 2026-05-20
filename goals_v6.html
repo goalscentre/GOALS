@@ -10325,93 +10325,10 @@ function refreshClientRow(id) {
         <button class="btn-icon" title="Editar"   onclick="openEditClient('${c.id}')">✏️</button>
         <button class="btn-icon" title="Eliminar" onclick="confirmDeleteClient('${c.id}')">🗑️</button>`:''}
       </div>
-    </td>`;
+    </td>
+  `;
 }
 
-  row.innerHTML = `
-    <td>
-      <strong class="${isPending?'client-name-pending':''}">${escH(c.name)}</strong>
-      ${clientNotes(c)?`<br><span style="font-size:11px;color:var(--text3);font-style:italic">${escH(clientNotes(c))}</span>`:''}
-    </td>
-    <td>
-      ${!isClosed?`
-        <div style="display:flex;align-items:center;gap:4px">
-          <button onclick="updateSessions('${c.id}',-1)" style="width:20px;height:20px;border-radius:50%;border:1px solid var(--border2);background:var(--surface2);color:var(--text2);font-size:12px;cursor:pointer;display:flex;align-items:center;justify-content:center" onmouseover="this.style.color='var(--red)';this.style.borderColor='var(--red)'" onmouseout="this.style.color='var(--text2)';this.style.borderColor='var(--border2)'">−</button>
-          <span class="money" style="min-width:20px;text-align:center">${c.sessions}</span>
-          <button onclick="updateSessions('${c.id}',+1)" style="width:20px;height:20px;border-radius:50%;border:1px solid var(--border2);background:var(--surface2);color:var(--text2);font-size:12px;cursor:pointer;display:flex;align-items:center;justify-content:center" onmouseover="this.style.color='var(--accent)';this.style.borderColor='var(--accent)'" onmouseout="this.style.color='var(--text2)';this.style.borderColor='var(--border2)'">+</button>
-        </div>
-      `:`<span class="money">${c.sessions}</span>`}
-    </td>
-    <td>
-      ${!isClosed?`
-        <div style="display:flex;align-items:center;gap:5px">
-          <button onclick="updateSessionsDone('${c.id}',-1)" style="width:22px;height:22px;border-radius:50%;border:1px solid var(--border2);background:var(--surface2);color:var(--text2);font-size:13px;cursor:pointer;display:flex;align-items:center;justify-content:center" onmouseover="this.style.color='var(--red)';this.style.borderColor='var(--red)'" onmouseout="this.style.color='var(--text2)';this.style.borderColor='var(--border2)'">−</button>
-          <div style="text-align:center;min-width:36px">
-            <span class="sessions-done" style="font-size:14px;font-weight:600">${c.sessionsDone||0}</span>
-            <span class="sessions-total"> / ${c.sessions}</span>
-          </div>
-          <button onclick="updateSessionsDone('${c.id}',+1)" style="width:22px;height:22px;border-radius:50%;border:1px solid var(--border2);background:var(--surface2);color:var(--text2);font-size:13px;cursor:pointer;display:flex;align-items:center;justify-content:center" onmouseover="this.style.color='var(--accent)';this.style.borderColor='var(--accent)'" onmouseout="this.style.color='var(--text2)';this.style.borderColor='var(--border2)'">+</button>
-        </div>
-        <div class="progress-wrap" style="margin-top:4px"><div class="progress-bar"><div class="progress-fill" style="width:${pct}%"></div></div></div>
-      `:`
-        <span class="sessions-badge"><span class="sessions-done">${c.sessionsDone||0}</span><span class="sessions-total"> / ${c.sessions}</span></span>
-        <div class="progress-wrap" style="margin-top:4px"><div class="progress-bar"><div class="progress-fill" style="width:${pct}%"></div></div></div>
-      `}
-    </td>
-    <td><span class="money" style="white-space:nowrap">${c.priceOverride!=null?'<span style="color:var(--blue)">★ </span>':''}${price.toFixed(2)} €</span></td>
-    <td>
-      <span class="money">${fmt(total)}</span>
-      ${(c.descompte||0)>0?`<br><span style="font-size:10px;background:var(--orange-dim);color:var(--orange);padding:1px 5px;border-radius:3px;font-family:var(--font-mono)">−${c.descompte}%</span>`:''}
-    </td>
-    <td>
-      ${!isClosed?`
-        <div style="display:flex;align-items:center;gap:4px">
-          <input type="number" value="${c.paid||0}" min="0" step="0.01"
-            onchange="updatePaid('${c.id}',this.value)"
-            onkeydown="if(event.key==='Enter')this.blur()"
-            style="width:60px;background:var(--surface2);border:1px solid var(--border);color:var(--accent);padding:4px 5px;border-radius:var(--radius-sm);font-family:var(--font-mono);font-size:12px;text-align:right"
-            onfocus="this.style.borderColor='var(--accent)';this.select()"
-            onblur="this.style.borderColor='var(--border)'" />
-          <span style="color:var(--text3);font-size:12px;font-family:var(--font-mono)">€</span>
-        </div>
-      `:`<span class="money money-paid">${fmt(c.paid)}</span>`}
-    </td>
-    <td><span class="money ${pending>0?'money-pending':''}">${pending>0?fmt(pending):'—'}</span></td>
-    <td>
-      ${!isClosed?`
-      <div style="display:flex;align-items:center;gap:3px">
-        <input type="number" value="${c.descompte||0}" min="0" max="100" step="1"
-          onchange="updateDescompte('${c.id}',this.value)"
-          onkeydown="if(event.key==='Enter')this.blur()"
-          style="width:42px;background:var(--surface2);border:1px solid var(--border);color:var(--orange);padding:4px 4px;border-radius:var(--radius-sm);font-family:var(--font-mono);font-size:12px;text-align:right"
-          onfocus="this.style.borderColor='var(--orange)';this.select()"
-          onblur="this.style.borderColor='var(--border)'" />
-        <span style="color:var(--text3);font-size:11px">%</span>
-      </div>`:`${(c.descompte||0)>0?'<span style="font-size:11px;background:var(--orange-dim);color:var(--orange);padding:2px 6px;border-radius:3px;font-family:var(--font-mono)">−'+c.descompte+'%</span>':'<span style="color:var(--text3)">—</span>'}`}
-    </td>
-    <td>
-      ${!isClosed?`
-        <select onchange="updateClientField('${c.id}','via',this.value)"
-          style="background:var(--surface2);border:1px solid var(--border);color:var(--text2);padding:4px 6px;border-radius:var(--radius-sm);font-family:var(--font-mono);font-size:11px;cursor:pointer;appearance:none;min-width:72px">
-          <option value="" ${!c.via?'selected':''}>—</option>
-          <option value="01 Ingrés"  ${c.via==='01 Ingrés' ?'selected':''}>📲 Ingrés</option>
-          <option value="02 Efectiu" ${c.via==='02 Efectiu'?'selected':''}>💵 Efectiu</option>
-        </select>
-      `:`${c.via?`<span class="via-tag">${escH(c.via.replace('01 ','').replace('02 ',''))}</span>`:'<span style="color:var(--text3)">—</span>'}`}
-    </td>
-    <td style="white-space:nowrap">
-      ${clientEstatBadge(c)}
-    </td>
-    <td style="white-space:nowrap">
-      <div class="row-actions">
-        <button class="btn-icon" title="Historial" onclick="openClientHistory('${safeName}')">📋</button>
-        <button class="btn-icon" title="Document" onclick="openClientDocModal('${c.id}')">${c.docData?'📎':'📄'}</button>
-        ${!isClosed?`
-        <button class="btn-icon" title="Editar"   onclick="openEditClient('${c.id}')">✏️</button>
-        <button class="btn-icon" title="Eliminar" onclick="confirmDeleteClient('${c.id}')">🗑️</button>`:''}
-      </div>
-    </td>`;
-}
 
 function updateKPIs() {
   const month        = getCurrentMonth();
