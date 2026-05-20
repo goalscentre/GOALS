@@ -974,14 +974,19 @@ function recalculateAllEstats(data) {
       if (NOTES_BLACKLIST && NOTES_BLACKLIST.has && c.notes) {
         if (NOTES_BLACKLIST.has(c.notes.trim().toLowerCase())) c.notes = '';
       }
-      if (c.estat !== '99 No Aplica' && c.estat !== '88 Sense Tarifa' && c.estat !== '87 Excés Pagament') {
+      {
+        // hasTarifesLocal: no depèn de DB global, usa data.tarifes directament
+        const catId = c.cat || '01';
+        const tars  = !!(data.tarifes && data.tarifes[catId] && data.tarifes[catId].length > 0);
+
         // Sessions = 0 o priceOverride = 0 explícit → No Aplica
         if (c.sessions === 0 || c.priceOverride === 0) {
           c.estat = '99 No Aplica';
+        } else if (c.estat === '99 No Aplica') {
+          // Respectar 99 No Aplica assignat manualment
         } else {
           // Sense tarifa configurada i sense preu manual → 88 Sense Tarifa
-          const noTarifa = !hasTarifes(c.cat) && c.priceOverride == null;
-          if (noTarifa) {
+          if (!tars && c.priceOverride == null) {
             c.estat = '88 Sense Tarifa';
           } else {
             const price  = c.priceOverride != null ? c.priceOverride : getPrice(c.sessions, c.cat);
@@ -9823,11 +9828,14 @@ function getClientsData() {
   const month   = getCurrentMonth();
   const isClosed = !!month.closed;
   const all     = month.clients || [];
-  const active  = all.filter(c => c.estat !== '99 No Aplica' && c.estat !== '88 Sense Tarifa' && c.estat !== '87 Excés Pagament');
-  const totalSessions = active.reduce((s,c) => s+(c.sessions||0), 0);
-  const totalIncome   = active.reduce((s,c) => s+clientTotal(c), 0);
-  const totalPaid     = active.reduce((s,c) => s+(c.paid||0), 0);
-  const totalPending  = active.reduce((s,c) => s+clientPending(c), 0);
+  // active: tots excepte 99 — per a la taula i recomptes
+  const active  = all.filter(c => c.estat !== '99 No Aplica');
+  // activeKPI: exclou també 87/88 per als càlculs financers
+  const activeKPI = active.filter(c => c.estat !== '88 Sense Tarifa' && c.estat !== '87 Excés Pagament');
+  const totalSessions = activeKPI.reduce((s,c) => s+(c.sessions||0), 0);
+  const totalIncome   = activeKPI.reduce((s,c) => s+clientTotal(c), 0);
+  const totalPaid     = activeKPI.reduce((s,c) => s+(c.paid||0), 0);
+  const totalPending  = activeKPI.reduce((s,c) => s+clientPending(c), 0);
   const paidPct       = totalIncome > 0 ? (totalPaid/totalIncome)*100 : 0;
   const totalExpenses = (month.gastos||[]).reduce((s,g) => s+(g.amount||0), 0);
   const netResult     = totalPaid - totalExpenses;
@@ -10407,7 +10415,7 @@ function refreshClientRow(id) {
 
 function updateKPIs() {
   const month        = getCurrentMonth();
-  const active       = (month.clients||[]).filter(c => c.estat !== '99 No Aplica' && c.estat !== '88 Sense Tarifa' && c.estat !== '87 Excés Pagament');
+  const active       = (month.clients||[]).filter(c => c.estat !== '99 No Aplica' );
   const totalPaid    = active.reduce((s,c) => s+(c.paid||0), 0);
   const totalIncome  = active.reduce((s,c) => s+clientTotal(c), 0);
   const totalPending = active.reduce((s,c) => s+clientPending(c), 0);
@@ -10538,7 +10546,7 @@ function doExportToMonth() {
   const label = `${MONTH_NAMES[monthIdx]} ${year}`;
 
   const sourceClients = (getCurrentMonth().clients || [])
-    .filter(c => c.estat !== '99 No Aplica' && c.estat !== '88 Sense Tarifa' && c.estat !== '87 Excés Pagament');
+    .filter(c => c.estat !== '99 No Aplica' );
 
   if (!DB.months[key]) {
     DB.months[key] = { label, clients: [], gastos: [] };
@@ -11258,7 +11266,7 @@ function renderGastos(container, actions) {
   const total = gastos.reduce((s, g) => s + (g.amount || 0), 0);
   const paid = gastos.filter(g => g.estat === '02 Pagat').reduce((s, g) => s + (g.amount || 0), 0);
   const pending = gastos.filter(g => g.estat === '01 Pendent').reduce((s, g) => s + (g.amount || 0), 0);
-  const clients = (month.clients || []).filter(c => c.estat !== '99 No Aplica' && c.estat !== '88 Sense Tarifa' && c.estat !== '87 Excés Pagament');
+  const clients = (month.clients || []).filter(c => c.estat !== '99 No Aplica' );
   const totalIncome = clients.reduce((s, c) => s + (c.paid || 0), 0);
   const net = totalIncome - total;
 
@@ -11696,7 +11704,7 @@ function renderAnual(container, actions) {
   // Construir dades mensuals
   const monthData = filteredKeys.map(k => {
     const m = DB.months[k];
-    const clients = (m.clients || []).filter(c => c.estat !== '99 No Aplica' && c.estat !== '88 Sense Tarifa' && c.estat !== '87 Excés Pagament');
+    const clients = (m.clients || []).filter(c => c.estat !== '99 No Aplica' );
     const income = clients.reduce((s, c) => s + (c.paid || 0), 0);
     const contracted = clients.reduce((s, c) => s + clientTotal(c), 0);
     const pending = clients.reduce((s, c) => s + clientPending(c), 0);
@@ -12008,7 +12016,7 @@ function openClientHistory(name) {
   const rows = [];
   allMonths.forEach(k => {
     const m = DB.months[k];
-    const found = (m.clients||[]).filter(c => c.name.toLowerCase() === name.toLowerCase() && c.estat !== '99 No Aplica' && c.estat !== '88 Sense Tarifa' && c.estat !== '87 Excés Pagament');
+    const found = (m.clients||[]).filter(c => c.name.toLowerCase() === name.toLowerCase() && c.estat !== '99 No Aplica' );
     found.forEach(c => {
       rows.push({ month: m.label, key: k, sessions: c.sessions, sessionsDone: c.sessionsDone||0,
         total: clientTotal(c), paid: c.paid||0, pending: clientPending(c), estat: c.estat, via: c.via||'' });
@@ -12200,7 +12208,7 @@ function createMonth() {
   let clients = [];
   if (copyFrom && DB.months[copyFrom]) {
     // Copy clients with reset payment status
-    clients = DB.months[copyFrom].clients.filter(c => c.estat !== '99 No Aplica' && c.estat !== '88 Sense Tarifa' && c.estat !== '87 Excés Pagament').map(c => ({
+    clients = DB.months[copyFrom].clients.filter(c => c.estat !== '99 No Aplica' ).map(c => ({
       ...c, id: uid(), paid: 0, via: c.via || '01 Ingrés', estat: '01 Pendent', sessionsDone: 0
     }));
   }
@@ -12217,7 +12225,7 @@ function createMonth() {
 
 function exportCSV() {
   const month = getCurrentMonth();
-  const clients = (month.clients || []).filter(c => c.estat !== '99 No Aplica' && c.estat !== '88 Sense Tarifa' && c.estat !== '87 Excés Pagament');
+  const clients = (month.clients || []).filter(c => c.estat !== '99 No Aplica' );
   const rows = [['Client','Sessions','Sessions Realitzades','€/Sessió','Total','Pagat','Pendent','Via','Estat','Notes']];
   clients.forEach(c => {
     const price = c.priceOverride != null ? c.priceOverride : getPrice(c.sessions);
@@ -12500,7 +12508,7 @@ function buildClientMap() {
         if (c.email)  clientMap[key].email  = c.email;
         if (c.genere) clientMap[key].genere = c.genere;
       }
-      if (c.estat !== '99 No Aplica' && c.estat !== '88 Sense Tarifa' && c.estat !== '87 Excés Pagament') {
+      if (c.estat !== '99 No Aplica' ) {
         clientMap[key].history.push({ monthKey: mk, monthLabel: m.label, sessions: c.sessions, sessionsDone: c.sessionsDone||0, paid: c.paid||0, total: clientTotal(c), pending: clientPending(c), estat: c.estat, cat: c.cat||'01' });
       }
     });
@@ -12732,7 +12740,7 @@ function renderDetall(container, actions) {
 
   const rows = monthKeys.map(k => {
     const m = DB.months[k];
-    const clients = (m.clients || []).filter(c => c.estat !== '99 No Aplica' && c.estat !== '88 Sense Tarifa' && c.estat !== '87 Excés Pagament');
+    const clients = (m.clients || []).filter(c => c.estat !== '99 No Aplica' );
     const paid = clients.reduce((s, c) => s + (c.paid || 0), 0);
     const contracted = clients.reduce((s, c) => s + clientTotal(c), 0);
     const pending = clients.reduce((s, c) => s + clientPending(c), 0);
@@ -13228,7 +13236,7 @@ function renderMobileSessions(container) {
 
 function renderMobileSessionsToolbar(toolbar) {
   const month = getCurrentMonth();
-  const active = (month.clients||[]).filter(c => c.estat !== '99 No Aplica' && c.estat !== '88 Sense Tarifa' && c.estat !== '87 Excés Pagament');
+  const active = (month.clients||[]).filter(c => c.estat !== '99 No Aplica' );
   const totalPaid    = active.reduce((s,c) => s+(c.paid||0), 0);
   const totalPending = active.reduce((s,c) => s+clientPending(c), 0);
   const pendingCount = active.filter(c => c.estat==='01 Pendent').length;
@@ -13269,7 +13277,7 @@ function renderMobileSessionsToolbar(toolbar) {
 function renderMobileSessionsCards(container) {
   const month = getCurrentMonth();
   const isClosed = !!month.closed;
-  const active = (month.clients||[]).filter(c => c.estat !== '99 No Aplica' && c.estat !== '88 Sense Tarifa' && c.estat !== '87 Excés Pagament');
+  const active = (month.clients||[]).filter(c => c.estat !== '99 No Aplica' );
 
   let filtered = active.slice();
   if (mobileSearch) {
@@ -13601,7 +13609,7 @@ async function gdriveLoadOrCreate() {
             if (!c.cat) c.cat = '01';
             if (c.descompte == null) c.descompte = 0;
             if (c.notes === 'Pendent pagament' || c.notes === 'Pendent de pagament') c.notes = '';
-            if (c.estat !== '99 No Aplica' && c.estat !== '88 Sense Tarifa' && c.estat !== '87 Excés Pagament') {
+            if (c.estat !== '99 No Aplica' ) {
               const price = c.priceOverride != null ? c.priceOverride : getPrice(c.sessions, c.cat);
               const base  = price * c.sessions;
               const total = c.descompte > 0 ? base * (1 - c.descompte / 100) : base;
