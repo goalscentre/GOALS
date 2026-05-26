@@ -652,6 +652,10 @@
   /* highlight search */
   mark { background: rgba(200,240,69,0.25); color: var(--accent); border-radius: 2px; }
 
+  /* Amagar fletxes dels inputs numerics inline (sessions) */
+  input[type=number]::-webkit-inner-spin-button,
+  input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+
 
 
   /* add month button */
@@ -979,15 +983,11 @@ function recalculateAllEstats(data) {
         const catId = c.cat || '01';
         const tars  = !!(data.tarifes && data.tarifes[catId] && data.tarifes[catId].length > 0);
 
-        // 99 No Aplica es SEMPRE manual - no s'assigna automaticament
-        // priceOverride = 0 explicit -> No Aplica (preu a 0 vol dir que no cobra)
-        if (c.priceOverride === 0) {
+        // Sessions = 0 o priceOverride = 0 explícit → No Aplica
+        if (c.sessions === 0 || c.priceOverride === 0) {
           c.estat = '99 No Aplica';
         } else if (c.estat === '99 No Aplica') {
-          // Respectar 99 No Aplica assignat manualment; no recalcular
-        } else if (c.sessions === 0) {
-          // Sessions = 0 pendents de confirmar -> Pendent (no amagar)
-          c.estat = '01 Pendent';
+          // Respectar 99 No Aplica assignat manualment
         } else {
           // Sense tarifa configurada i sense preu manual → 88 Sense Tarifa
           if (!tars && c.priceOverride == null) {
@@ -10007,7 +10007,11 @@ function renderClientsTable(container) {
           ${!isClosed?`
           <div style="display:flex;align-items:center;gap:4px">
             <button onclick="updateSessions('${c.id}',-1)" style="width:20px;height:20px;border-radius:50%;border:1px solid var(--border2);background:var(--surface2);color:var(--text2);font-size:12px;cursor:pointer;display:flex;align-items:center;justify-content:center" onmouseover="this.style.color='var(--red)';this.style.borderColor='var(--red)'" onmouseout="this.style.color='var(--text2)';this.style.borderColor='var(--border2)'">−</button>
-            <span class="money" style="min-width:20px;text-align:center">${c.sessions}</span>
+            <input type="number" value="${c.sessions}" min="0" max="99"
+              style="width:38px;text-align:center;background:transparent;border:none;border-bottom:1px solid var(--border2);color:var(--text);font-family:var(--font-mono);font-size:13px;padding:1px 2px;-moz-appearance:textfield"
+              onchange="setSessionsDirect('${c.id}',this.value)"
+              onkeydown="if(event.key==='Enter')this.blur()"
+              onfocus="this.select()" />
             <button onclick="updateSessions('${c.id}',+1)" style="width:20px;height:20px;border-radius:50%;border:1px solid var(--border2);background:var(--surface2);color:var(--text2);font-size:12px;cursor:pointer;display:flex;align-items:center;justify-content:center" onmouseover="this.style.color='var(--accent)';this.style.borderColor='var(--accent)'" onmouseout="this.style.color='var(--text2)';this.style.borderColor='var(--border2)'">+</button>
           </div>`:`<span class="money">${c.sessions}</span>`}
         </td>
@@ -10016,7 +10020,11 @@ function renderClientsTable(container) {
           <div style="display:flex;align-items:center;gap:4px">
             <button onclick="updateSessionsDone('${c.id}',-1)" style="width:20px;height:20px;border-radius:50%;border:1px solid var(--border2);background:var(--surface2);color:var(--text2);font-size:12px;cursor:pointer;display:flex;align-items:center;justify-content:center" onmouseover="this.style.color='var(--red)';this.style.borderColor='var(--red)'" onmouseout="this.style.color='var(--text2)';this.style.borderColor='var(--border2)'">−</button>
             <div style="text-align:center;min-width:36px">
-              <span class="sessions-done" style="font-size:13px;font-weight:600">${c.sessionsDone||0}</span>
+              <input type="number" value="${c.sessionsDone||0}" min="0"
+                style="width:32px;text-align:center;background:transparent;border:none;border-bottom:1px solid var(--border2);color:var(--text);font-family:var(--font-mono);font-size:13px;font-weight:600;padding:1px 2px;-moz-appearance:textfield"
+                onchange="setSessionsDoneDirect('${c.id}',this.value)"
+                onkeydown="if(event.key==='Enter')this.blur()"
+                onfocus="this.select()" />
               <span class="sessions-total"> / ${c.sessions}</span>
             </div>
             <button onclick="updateSessionsDone('${c.id}',+1)" style="width:20px;height:20px;border-radius:50%;border:1px solid var(--border2);background:var(--surface2);color:var(--text2);font-size:12px;cursor:pointer;display:flex;align-items:center;justify-content:center" onmouseover="this.style.color='var(--accent)';this.style.borderColor='var(--accent)'" onmouseout="this.style.color='var(--text2)';this.style.borderColor='var(--border2)'">+</button>
@@ -10175,6 +10183,39 @@ function updateSessions(id, delta) {
   saveData();
   refreshClientRow(id);
   updateKPIs();
+}
+
+function setSessionsDirect(id, val) {
+  const month = getCurrentMonth();
+  const client = month.clients.find(c => c.id === id);
+  if (!client) return;
+  const n = parseInt(val);
+  if (!isFinite(n) || n < 0) return;
+  client.sessions = Math.min(n, 99);
+  if (client.sessions === 0 || client.priceOverride === 0) {
+    client.estat = '99 No Aplica';
+  } else if (!hasTarifes(client.cat) && client.priceOverride == null) {
+    client.estat = '88 Sense Tarifa';
+  } else {
+    const total  = clientTotal(client);
+    const totalR = Math.round(total * 100) / 100;
+    const paidR  = Math.round((client.paid||0) * 100) / 100;
+    client.estat = paidR > totalR + 0.01 ? '87 Excés Pagament' : (clientPending(client) > 0 ? '01 Pendent' : '02 Pagat');
+  }
+  saveData();
+  refreshClientRow(id);
+  updateKPIs();
+}
+
+function setSessionsDoneDirect(id, val) {
+  const month = getCurrentMonth();
+  const client = month.clients.find(c => c.id === id);
+  if (!client) return;
+  const n = parseInt(val);
+  if (!isFinite(n) || n < 0) return;
+  client.sessionsDone = Math.min(n, Math.max(client.sessions + 10, 199));
+  saveData();
+  refreshClientRow(id);
 }
 
 function updateSessionsDone(id, delta) {
@@ -13249,13 +13290,23 @@ function renderMobileSessionsCards(container) {
         <div class="mobile-control-group">
           <span class="mobile-control-label">Contractades</span>
           <button class="mobile-btn minus" onclick="updateSessions('${c.id}',-1);renderMobileContent()">−</button>
-          <span class="mobile-count">${c.sessions}</span>
+          <input type="number" value="${c.sessions}" min="0" max="99"
+            class="mobile-count"
+            style="width:44px;background:transparent;border:none;border-bottom:1px solid var(--border2);text-align:center;color:var(--text);-moz-appearance:textfield"
+            onchange="setSessionsDirect('${c.id}',this.value);renderMobileContent()"
+            onkeydown="if(event.key==='Enter')this.blur()"
+            onfocus="this.select()" />
           <button class="mobile-btn plus" onclick="updateSessions('${c.id}',+1);renderMobileContent()">+</button>
         </div>
         <div class="mobile-control-group">
           <span class="mobile-control-label">Realitzades</span>
           <button class="mobile-btn minus" onclick="updateSessionsDone('${c.id}',-1);renderMobileContent()">−</button>
-          <span class="mobile-count">${c.sessionsDone||0}</span>
+          <input type="number" value="${c.sessionsDone||0}" min="0"
+            class="mobile-count"
+            style="width:44px;background:transparent;border:none;border-bottom:1px solid var(--border2);text-align:center;color:var(--text);-moz-appearance:textfield"
+            onchange="setSessionsDoneDirect('${c.id}',this.value);renderMobileContent()"
+            onkeydown="if(event.key==='Enter')this.blur()"
+            onfocus="this.select()" />
           <button class="mobile-btn plus" onclick="updateSessionsDone('${c.id}',+1);renderMobileContent()">+</button>
         </div>
         <div class="mobile-control-group">
@@ -13536,17 +13587,12 @@ async function gdriveLoadOrCreate() {
             if (c.descompte == null) c.descompte = 0;
             if (c.notes === 'Pendent pagament' || c.notes === 'Pendent de pagament') c.notes = '';
             if (c.estat !== '99 No Aplica' ) {
-              // Sessions = 0 -> pendent de confirmar (no calcular)
-              if (c.sessions === 0) {
-                c.estat = '01 Pendent';
-              } else {
-                const price = c.priceOverride != null ? c.priceOverride : getPrice(c.sessions, c.cat);
-                const base  = price * c.sessions;
-                const total = c.descompte > 0 ? base * (1 - c.descompte / 100) : base;
-                const totalR = Math.round(total * 100) / 100;
-                const paidR  = Math.round((c.paid || 0) * 100) / 100;
-                c.estat = Math.max(0, Math.round((totalR - paidR) * 100) / 100) > 0 ? '01 Pendent' : '02 Pagat';
-              }
+              const price = c.priceOverride != null ? c.priceOverride : getPrice(c.sessions, c.cat);
+              const base  = price * c.sessions;
+              const total = c.descompte > 0 ? base * (1 - c.descompte / 100) : base;
+              const totalR = Math.round(total * 100) / 100;
+              const paidR  = Math.round((c.paid || 0) * 100) / 100;
+              c.estat = Math.max(0, Math.round((totalR - paidR) * 100) / 100) > 0 ? '01 Pendent' : '02 Pagat';
             }
           });
         });
