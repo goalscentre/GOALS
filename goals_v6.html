@@ -979,11 +979,15 @@ function recalculateAllEstats(data) {
         const catId = c.cat || '01';
         const tars  = !!(data.tarifes && data.tarifes[catId] && data.tarifes[catId].length > 0);
 
-        // Sessions = 0 o priceOverride = 0 explícit → No Aplica
-        if (c.sessions === 0 || c.priceOverride === 0) {
+        // 99 No Aplica es SEMPRE manual - no s'assigna automaticament
+        // priceOverride = 0 explicit -> No Aplica (preu a 0 vol dir que no cobra)
+        if (c.priceOverride === 0) {
           c.estat = '99 No Aplica';
         } else if (c.estat === '99 No Aplica') {
-          // Respectar 99 No Aplica assignat manualment
+          // Respectar 99 No Aplica assignat manualment; no recalcular
+        } else if (c.sessions === 0) {
+          // Sessions = 0 pendents de confirmar -> Pendent (no amagar)
+          c.estat = '01 Pendent';
         } else {
           // Sense tarifa configurada i sense preu manual → 88 Sense Tarifa
           if (!tars && c.priceOverride == null) {
@@ -9828,8 +9832,10 @@ function getClientsData() {
   const month   = getCurrentMonth();
   const isClosed = !!month.closed;
   const all     = month.clients || [];
-  // active: tots excepte 99 — per a la taula i recomptes
+  // active: tots excepte 99 — per als KPIs i càlculs financers
   const active  = all.filter(c => c.estat !== '99 No Aplica');
+  // noAplica: clients marcats manualment com No Aplica (visibles amb filtre)
+  const noAplica = all.filter(c => c.estat === '99 No Aplica');
   // activeKPI: exclou també 87/88 per als càlculs financers
   const activeKPI = active.filter(c => c.estat !== '88 Sense Tarifa' && c.estat !== '87 Excés Pagament');
   const totalSessions = activeKPI.reduce((s,c) => s+(c.sessions||0), 0);
@@ -9841,7 +9847,7 @@ function getClientsData() {
   const netResult     = totalPaid - totalExpenses;
   const paidIngres    = active.reduce((s,c) => c.via==='01 Ingrés'  ? s+(c.paid||0):s, 0);
   const paidEfectiu   = active.reduce((s,c) => c.via==='02 Efectiu' ? s+(c.paid||0):s, 0);
-  return { month, isClosed, all, active, totalSessions, totalIncome, totalPaid, totalPending,
+  return { month, isClosed, all, active, noAplica, totalSessions, totalIncome, totalPaid, totalPending,
            paidPct, totalExpenses, netResult, paidIngres, paidEfectiu };
 }
 
@@ -9936,17 +9942,19 @@ function renderClientsStats(panel, actions) {
 }
 
 function renderClientsTable(container) {
-  const { month, isClosed, active } = getClientsData();
+  const { month, isClosed, active, noAplica } = getClientsData();
 
-  // Build filtered list
-  let filtered = active.slice();
+  // Build filtered list: inclou No Aplica quan el filtre està actiu
+  let baseList = filterState === 'noaplica' ? noAplica.slice() : active.slice();
+  let filtered = baseList;
   if (searchQuery) {
     const q = searchQuery.toLowerCase();
     filtered = filtered.filter(c => c.name.toLowerCase().includes(q));
   }
   if (filterState === 'pagat')   filtered = filtered.filter(c => c.estat === '02 Pagat');
   if (filterState === 'pendent') filtered = filtered.filter(c => c.estat === '01 Pendent');
-  if (filterCat !== 'all')       filtered = filtered.filter(c => (c.cat||'01') === filterCat);
+  // No aplica: ja està en baseList, no cal més filtre
+  if (filterCat !== 'all' && filterState !== 'noaplica') filtered = filtered.filter(c => (c.cat||'01') === filterCat);
 
   // Sort within categories (category order is always 01→05)
   filtered.sort((a, b) => {
@@ -10097,7 +10105,7 @@ function renderClientsTable(container) {
 }
 
 function renderClientsToolbar(panel) {
-  const { active } = getClientsData();
+  const { active, noAplica } = getClientsData();
   panel.innerHTML = `
     <div class="toolbar" style="padding-top:12px">
       <div class="search-box">
@@ -10107,6 +10115,7 @@ function renderClientsToolbar(panel) {
       <span class="filter-pill ${filterState==='all'?'active':''}"     onclick="setFilter('all')">Tots (${active.length})</span>
       <span class="filter-pill ${filterState==='pagat'?'active':''}"   onclick="setFilter('pagat')">✓ Pagats (${active.filter(c=>c.estat==='02 Pagat').length})</span>
       <span class="filter-pill orange ${filterState==='pendent'?'active':''}" onclick="setFilter('pendent')">⚠ Pendents (${active.filter(c=>c.estat==='01 Pendent').length})</span>
+      ${noAplica.length > 0 ? `<span class="filter-pill ${filterState==='noaplica'?'active':''}" style="${filterState==='noaplica'?'background:var(--surface3);border-color:var(--border2);color:var(--text2)':''}" onclick="setFilter('noaplica')">∅ No Aplica (${noAplica.length})</span>` : ''}
     </div>
     <div class="toolbar" style="margin-bottom:8px">
       ${CATEGORIES.map(cat => {
@@ -10502,8 +10511,8 @@ function openAddClient() {
   });
   const existingClients = Object.values(clientMap).sort((a,b)=>a.name.localeCompare(b.name));
 
-  // Check if already in current month
-  const currentNames = new Set((getCurrentMonth().clients||[]).map(c=>c.name.toLowerCase()));
+  // Check if already in current month (exclude 99 No Aplica — no apareixen a la taula)
+  const currentNames = new Set((getCurrentMonth().clients||[]).filter(c=>c.estat!=='99 No Aplica').map(c=>c.name.toLowerCase()));
 
   showModal(`
     <div class="modal-header">
@@ -13527,12 +13536,17 @@ async function gdriveLoadOrCreate() {
             if (c.descompte == null) c.descompte = 0;
             if (c.notes === 'Pendent pagament' || c.notes === 'Pendent de pagament') c.notes = '';
             if (c.estat !== '99 No Aplica' ) {
-              const price = c.priceOverride != null ? c.priceOverride : getPrice(c.sessions, c.cat);
-              const base  = price * c.sessions;
-              const total = c.descompte > 0 ? base * (1 - c.descompte / 100) : base;
-              const totalR = Math.round(total * 100) / 100;
-              const paidR  = Math.round((c.paid || 0) * 100) / 100;
-              c.estat = Math.max(0, Math.round((totalR - paidR) * 100) / 100) > 0 ? '01 Pendent' : '02 Pagat';
+              // Sessions = 0 -> pendent de confirmar (no calcular)
+              if (c.sessions === 0) {
+                c.estat = '01 Pendent';
+              } else {
+                const price = c.priceOverride != null ? c.priceOverride : getPrice(c.sessions, c.cat);
+                const base  = price * c.sessions;
+                const total = c.descompte > 0 ? base * (1 - c.descompte / 100) : base;
+                const totalR = Math.round(total * 100) / 100;
+                const paidR  = Math.round((c.paid || 0) * 100) / 100;
+                c.estat = Math.max(0, Math.round((totalR - paidR) * 100) / 100) > 0 ? '01 Pendent' : '02 Pagat';
+              }
             }
           });
         });
@@ -13695,17 +13709,11 @@ function showConnectScreen() {
 
 async function gdriveConnectSilent() {
   return new Promise((resolve, reject) => {
-    // Timeout de seguretat: si Google no respon en 8s (habitual en mòbil/PWA), continua
-    const timeout = setTimeout(() => {
-      reject(new Error('timeout'));
-    }, 8000);
-
     const client = google.accounts.oauth2.initTokenClient({
       client_id: GDRIVE_CLIENT_ID,
       scope: GDRIVE_SCOPE,
       prompt: '',
       callback: async (resp) => {
-        clearTimeout(timeout);
         if (resp.error) { reject(resp.error); return; }
         gdriveToken = resp.access_token;
         localStorage.setItem('goals_gdrive_was_connected', '1');
