@@ -998,7 +998,7 @@ function recalculateAllEstats(data) {
             const total  = c.descompte > 0 ? base * (1 - c.descompte / 100) : base;
             const totalR = Math.round(total * 100) / 100;
             const paidR  = Math.round((c.paid || 0) * 100) / 100;
-            if (paidR > totalR + 0.01) {
+            if (paidR > totalR + 0.10) {
               c.estat = '87 Excés Pagament';
             } else {
               const pending = Math.max(0, Math.round((totalR - paidR) * 100) / 100);
@@ -9991,7 +9991,7 @@ function renderClientsTable(container) {
         rowsHtml += `<tr class="cat-separator"><td colspan="9"><span class="${catInfo.cls} cat-badge">${catInfo.label}</span></td></tr>`;
         lastCat = cat;
       }
-      const price   = c.priceOverride!=null ? c.priceOverride : getPrice(c.sessions);
+      const price   = c.priceOverride!=null ? c.priceOverride : getPrice(c.sessions, c.cat);
       const total   = clientTotal(c);
       const pending = clientPending(c);
       const isPending = c.estat==='01 Pendent';
@@ -10174,7 +10174,7 @@ function updateSessions(id, delta) {
     const total  = clientTotal(client);
     const totalR = Math.round(total * 100) / 100;
     const paidR  = Math.round((client.paid||0) * 100) / 100;
-    if (paidR > totalR + 0.01) {
+    if (paidR > totalR + 0.10) {
       client.estat = '87 Excés Pagament';
     } else {
       client.estat = clientPending(client) > 0 ? '01 Pendent' : '02 Pagat';
@@ -10200,7 +10200,7 @@ function setSessionsDirect(id, val) {
     const total  = clientTotal(client);
     const totalR = Math.round(total * 100) / 100;
     const paidR  = Math.round((client.paid||0) * 100) / 100;
-    client.estat = paidR > totalR + 0.01 ? '87 Excés Pagament' : (clientPending(client) > 0 ? '01 Pendent' : '02 Pagat');
+    client.estat = paidR > totalR + 0.10 ? '87 Excés Pagament' : (clientPending(client) > 0 ? '01 Pendent' : '02 Pagat');
   }
   saveData();
   refreshClientRow(id);
@@ -10248,7 +10248,7 @@ function updatePaid(id, value) {
   const total  = clientTotal(client);
   const paidR  = client.paid;
   const totalR = Math.round(total * 100) / 100;
-  if (paidR > totalR + 0.01) {
+  if (paidR > totalR + 0.10) {
     client.estat = '87 Excés Pagament';
     toast(`⚠ Pagament en excés: ${fmt(paidR - totalR)} de més`, 'warning');
   } else {
@@ -10268,7 +10268,7 @@ function updateDescompte(id, value) {
   const total  = clientTotal(client);
   const paidR  = Math.round((client.paid || 0) * 100) / 100;
   const totalR = Math.round(total * 100) / 100;
-  if (paidR > totalR + 0.01) {
+  if (paidR > totalR + 0.10) {
     client.estat = '87 Excés Pagament';
   } else {
     client.estat = clientPending(client) > 0 ? '01 Pendent' : '02 Pagat';
@@ -10302,7 +10302,11 @@ function refreshClientRow(id) {
       ${!isClosed?`
         <div style="display:flex;align-items:center;gap:4px">
           <button onclick="updateSessions('${c.id}',-1)" style="width:20px;height:20px;border-radius:50%;border:1px solid var(--border2);background:var(--surface2);color:var(--text2);font-size:12px;cursor:pointer;display:flex;align-items:center;justify-content:center" onmouseover="this.style.color='var(--red)';this.style.borderColor='var(--red)'" onmouseout="this.style.color='var(--text2)';this.style.borderColor='var(--border2)'">−</button>
-          <span class="money" style="min-width:20px;text-align:center">${c.sessions}</span>
+          <input type="number" value="${c.sessions}" min="0" max="99"
+            style="width:38px;text-align:center;background:transparent;border:none;border-bottom:1px solid var(--border2);color:var(--text);font-family:var(--font-mono);font-size:13px;padding:1px 2px;-moz-appearance:textfield"
+            onchange="setSessionsDirect('${c.id}',this.value)"
+            onkeydown="if(event.key==='Enter')this.blur()"
+            onfocus="this.select()" />
           <button onclick="updateSessions('${c.id}',+1)" style="width:20px;height:20px;border-radius:50%;border:1px solid var(--border2);background:var(--surface2);color:var(--text2);font-size:12px;cursor:pointer;display:flex;align-items:center;justify-content:center" onmouseover="this.style.color='var(--accent)';this.style.borderColor='var(--accent)'" onmouseout="this.style.color='var(--text2)';this.style.borderColor='var(--border2)'">+</button>
         </div>
       `:`<span class="money">${c.sessions}</span>`}
@@ -10312,7 +10316,11 @@ function refreshClientRow(id) {
         <div style="display:flex;align-items:center;gap:5px">
           <button onclick="updateSessionsDone('${c.id}',-1)" style="width:22px;height:22px;border-radius:50%;border:1px solid var(--border2);background:var(--surface2);color:var(--text2);font-size:13px;cursor:pointer;display:flex;align-items:center;justify-content:center" onmouseover="this.style.color='var(--red)';this.style.borderColor='var(--red)'" onmouseout="this.style.color='var(--text2)';this.style.borderColor='var(--border2)'">−</button>
           <div style="text-align:center;min-width:36px">
-            <span class="sessions-done" style="font-size:14px;font-weight:600">${c.sessionsDone||0}</span>
+            <input type="number" value="${c.sessionsDone||0}" min="0"
+              style="width:32px;text-align:center;background:transparent;border:none;border-bottom:1px solid var(--border2);color:var(--text);font-family:var(--font-mono);font-size:14px;font-weight:600;padding:1px 2px;-moz-appearance:textfield"
+              onchange="setSessionsDoneDirect('${c.id}',this.value)"
+              onkeydown="if(event.key==='Enter')this.blur()"
+              onfocus="this.select()" />
             <span class="sessions-total"> / ${c.sessions}</span>
           </div>
           <button onclick="updateSessionsDone('${c.id}',+1)" style="width:22px;height:22px;border-radius:50%;border:1px solid var(--border2);background:var(--surface2);color:var(--text2);font-size:13px;cursor:pointer;display:flex;align-items:center;justify-content:center" onmouseover="this.style.color='var(--accent)';this.style.borderColor='var(--accent)'" onmouseout="this.style.color='var(--text2)';this.style.borderColor='var(--border2)'">+</button>
@@ -13579,7 +13587,9 @@ async function gdriveLoadOrCreate() {
 
       if (driveDate > localDate || !localRaw) {
         // Drive és més nou — carregar del Drive
-        DB = recalculateAllEstats(driveData);
+        // Assignar DB primer perquè getPrice use les tarifes correctes del Drive
+        DB = driveData;
+        recalculateAllEstats(DB);
         // Recalcular estats
         Object.keys(DB.months || {}).forEach(mk => {
           (DB.months[mk].clients || []).forEach(c => {
