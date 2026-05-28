@@ -652,10 +652,6 @@
   /* highlight search */
   mark { background: rgba(200,240,69,0.25); color: var(--accent); border-radius: 2px; }
 
-  /* Amagar fletxes dels inputs numerics inline (sessions) */
-  input[type=number]::-webkit-inner-spin-button,
-  input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
-
 
 
   /* add month button */
@@ -750,6 +746,7 @@
   .mobile-filter-pill { padding:5px 12px; border-radius:14px; font-size:12px; white-space:nowrap; cursor:pointer; border:1px solid var(--border); background:var(--surface2); color:var(--text2); -webkit-tap-highlight-color:transparent; }
   .mobile-filter-pill.active { background:var(--accent-dim); border-color:rgba(200,240,69,0.4); color:var(--accent); }
   .mobile-filter-pill.orange.active { background:var(--orange-dim); border-color:rgba(255,154,60,0.3); color:var(--orange); }
+  .mobile-filter-pill.gray.active { background:var(--surface3,rgba(255,255,255,0.06)); border-color:rgba(160,160,160,0.3); color:var(--text2); }
 
   .mobile-cat-header { padding:6px 16px; background:var(--surface2); border-bottom:1px solid var(--border); font-size:10px; font-family:var(--font-mono); color:var(--text3); letter-spacing:0.8px; text-transform:uppercase; }
 
@@ -778,7 +775,7 @@
   <div id="splash-screen" style="display:none;position:fixed;inset:0;background:#0f0f0f;z-index:9999;flex-direction:column;align-items:center;justify-content:center;gap:0">
     <img src="icon-512.png" style="width:120px;height:120px;border-radius:24px;margin-bottom:28px" />
     <div style="font-family:'Syne',sans-serif;font-weight:800;font-size:28px;color:#c8f045;margin-bottom:6px">GOALS</div>
-    <div style="font-family:'DM Mono',monospace;font-size:11px;color:#555;letter-spacing:1px;margin-bottom:48px">GESTIÓ DE PAGAMENTS · v7.5</div>
+    <div style="font-family:'DM Mono',monospace;font-size:11px;color:#555;letter-spacing:1px;margin-bottom:48px">GESTIÓ DE PAGAMENTS · v7.6</div>
     <div id="splash-content" style="display:flex;flex-direction:column;align-items:center;gap:12px;width:280px">
       <!-- Content injected by JS -->
     </div>
@@ -788,7 +785,7 @@
     <div class="sidebar-logo">
       <h1>GOALS</h1>
       <span>GESTIÓ DE PAGAMENTS</span>
-      <span id="sidebar-version" style="font-size:9px;color:#333;font-family:'DM Mono',monospace;letter-spacing:0.5px;margin-top:2px">v7.5</span>
+      <span id="sidebar-version" style="font-size:9px;color:#333;font-family:'DM Mono',monospace;letter-spacing:0.5px;margin-top:2px">v7.6</span>
     </div>
 
     <div class="sidebar-section">
@@ -935,13 +932,9 @@ function getTarifesForCat(cat) {
   return []; // sense tarifes configurades
 }
 
-function getPrice(sessions, cat, tarifesOverride) {
+function getPrice(sessions, cat) {
   if (!sessions || sessions <= 0) return 0;
-  // tarifesOverride permet usar un conjunt de tarifes específic (ex: data.tarifes)
-  // sense dependre del DB global (útil quan DB encara no existeix)
-  const tarifes = tarifesOverride
-    ? (tarifesOverride[cat || '01'] || [])
-    : getTarifesForCat(cat || '01');
+  const tarifes = getTarifesForCat(cat || '01');
   if (!tarifes.length) return 0; // no configurat
   for (const t of tarifes) {
     if (sessions >= t.from && sessions <= t.to) return t.price;
@@ -997,13 +990,12 @@ function recalculateAllEstats(data) {
           if (!tars && c.priceOverride == null) {
             c.estat = '88 Sense Tarifa';
           } else {
-            // Usar data.tarifes directament — DB pot no estar assignat encara
-            const price  = c.priceOverride != null ? c.priceOverride : getPrice(c.sessions, c.cat, data.tarifes);
+            const price  = c.priceOverride != null ? c.priceOverride : getPrice(c.sessions, c.cat);
             const base   = price * c.sessions;
             const total  = c.descompte > 0 ? base * (1 - c.descompte / 100) : base;
             const totalR = Math.round(total * 100) / 100;
             const paidR  = Math.round((c.paid || 0) * 100) / 100;
-            if (paidR > totalR + 0.10) {
+            if (paidR > totalR + 0.01) {
               c.estat = '87 Excés Pagament';
             } else {
               const pending = Math.max(0, Math.round((totalR - paidR) * 100) / 100);
@@ -9837,10 +9829,8 @@ function getClientsData() {
   const month   = getCurrentMonth();
   const isClosed = !!month.closed;
   const all     = month.clients || [];
-  // active: tots excepte 99 — per als KPIs i càlculs financers
+  // active: tots excepte 99 — per a la taula i recomptes
   const active  = all.filter(c => c.estat !== '99 No Aplica');
-  // noAplica: clients marcats manualment com No Aplica (visibles amb filtre)
-  const noAplica = all.filter(c => c.estat === '99 No Aplica');
   // activeKPI: exclou també 87/88 per als càlculs financers
   const activeKPI = active.filter(c => c.estat !== '88 Sense Tarifa' && c.estat !== '87 Excés Pagament');
   const totalSessions = activeKPI.reduce((s,c) => s+(c.sessions||0), 0);
@@ -9852,7 +9842,7 @@ function getClientsData() {
   const netResult     = totalPaid - totalExpenses;
   const paidIngres    = active.reduce((s,c) => c.via==='01 Ingrés'  ? s+(c.paid||0):s, 0);
   const paidEfectiu   = active.reduce((s,c) => c.via==='02 Efectiu' ? s+(c.paid||0):s, 0);
-  return { month, isClosed, all, active, noAplica, totalSessions, totalIncome, totalPaid, totalPending,
+  return { month, isClosed, all, active, totalSessions, totalIncome, totalPaid, totalPending,
            paidPct, totalExpenses, netResult, paidIngres, paidEfectiu };
 }
 
@@ -9947,19 +9937,17 @@ function renderClientsStats(panel, actions) {
 }
 
 function renderClientsTable(container) {
-  const { month, isClosed, active, noAplica } = getClientsData();
+  const { month, isClosed, active } = getClientsData();
 
-  // Build filtered list: inclou No Aplica quan el filtre està actiu
-  let baseList = filterState === 'noaplica' ? noAplica.slice() : active.slice();
-  let filtered = baseList;
+  // Build filtered list
+  let filtered = active.slice();
   if (searchQuery) {
     const q = searchQuery.toLowerCase();
     filtered = filtered.filter(c => c.name.toLowerCase().includes(q));
   }
   if (filterState === 'pagat')   filtered = filtered.filter(c => c.estat === '02 Pagat');
   if (filterState === 'pendent') filtered = filtered.filter(c => c.estat === '01 Pendent');
-  // No aplica: ja està en baseList, no cal més filtre
-  if (filterCat !== 'all' && filterState !== 'noaplica') filtered = filtered.filter(c => (c.cat||'01') === filterCat);
+  if (filterCat !== 'all')       filtered = filtered.filter(c => (c.cat||'01') === filterCat);
 
   // Sort within categories (category order is always 01→05)
   filtered.sort((a, b) => {
@@ -9996,7 +9984,7 @@ function renderClientsTable(container) {
         rowsHtml += `<tr class="cat-separator"><td colspan="9"><span class="${catInfo.cls} cat-badge">${catInfo.label}</span></td></tr>`;
         lastCat = cat;
       }
-      const price   = c.priceOverride!=null ? c.priceOverride : getPrice(c.sessions, c.cat);
+      const price   = c.priceOverride!=null ? c.priceOverride : getPrice(c.sessions);
       const total   = clientTotal(c);
       const pending = clientPending(c);
       const isPending = c.estat==='01 Pendent';
@@ -10012,11 +10000,7 @@ function renderClientsTable(container) {
           ${!isClosed?`
           <div style="display:flex;align-items:center;gap:4px">
             <button onclick="updateSessions('${c.id}',-1)" style="width:20px;height:20px;border-radius:50%;border:1px solid var(--border2);background:var(--surface2);color:var(--text2);font-size:12px;cursor:pointer;display:flex;align-items:center;justify-content:center" onmouseover="this.style.color='var(--red)';this.style.borderColor='var(--red)'" onmouseout="this.style.color='var(--text2)';this.style.borderColor='var(--border2)'">−</button>
-            <input type="number" value="${c.sessions}" min="0" max="99"
-              style="width:38px;text-align:center;background:transparent;border:none;border-bottom:1px solid var(--border2);color:var(--text);font-family:var(--font-mono);font-size:13px;padding:1px 2px;-moz-appearance:textfield"
-              onchange="setSessionsDirect('${c.id}',this.value)"
-              onkeydown="if(event.key==='Enter')this.blur()"
-              onfocus="this.select()" />
+            <span class="money" style="min-width:20px;text-align:center">${c.sessions}</span>
             <button onclick="updateSessions('${c.id}',+1)" style="width:20px;height:20px;border-radius:50%;border:1px solid var(--border2);background:var(--surface2);color:var(--text2);font-size:12px;cursor:pointer;display:flex;align-items:center;justify-content:center" onmouseover="this.style.color='var(--accent)';this.style.borderColor='var(--accent)'" onmouseout="this.style.color='var(--text2)';this.style.borderColor='var(--border2)'">+</button>
           </div>`:`<span class="money">${c.sessions}</span>`}
         </td>
@@ -10025,11 +10009,7 @@ function renderClientsTable(container) {
           <div style="display:flex;align-items:center;gap:4px">
             <button onclick="updateSessionsDone('${c.id}',-1)" style="width:20px;height:20px;border-radius:50%;border:1px solid var(--border2);background:var(--surface2);color:var(--text2);font-size:12px;cursor:pointer;display:flex;align-items:center;justify-content:center" onmouseover="this.style.color='var(--red)';this.style.borderColor='var(--red)'" onmouseout="this.style.color='var(--text2)';this.style.borderColor='var(--border2)'">−</button>
             <div style="text-align:center;min-width:36px">
-              <input type="number" value="${c.sessionsDone||0}" min="0"
-                style="width:32px;text-align:center;background:transparent;border:none;border-bottom:1px solid var(--border2);color:var(--text);font-family:var(--font-mono);font-size:13px;font-weight:600;padding:1px 2px;-moz-appearance:textfield"
-                onchange="setSessionsDoneDirect('${c.id}',this.value)"
-                onkeydown="if(event.key==='Enter')this.blur()"
-                onfocus="this.select()" />
+              <span class="sessions-done" style="font-size:13px;font-weight:600">${c.sessionsDone||0}</span>
               <span class="sessions-total"> / ${c.sessions}</span>
             </div>
             <button onclick="updateSessionsDone('${c.id}',+1)" style="width:20px;height:20px;border-radius:50%;border:1px solid var(--border2);background:var(--surface2);color:var(--text2);font-size:12px;cursor:pointer;display:flex;align-items:center;justify-content:center" onmouseover="this.style.color='var(--accent)';this.style.borderColor='var(--accent)'" onmouseout="this.style.color='var(--text2)';this.style.borderColor='var(--border2)'">+</button>
@@ -10118,7 +10098,7 @@ function renderClientsTable(container) {
 }
 
 function renderClientsToolbar(panel) {
-  const { active, noAplica } = getClientsData();
+  const { active } = getClientsData();
   panel.innerHTML = `
     <div class="toolbar" style="padding-top:12px">
       <div class="search-box">
@@ -10128,7 +10108,6 @@ function renderClientsToolbar(panel) {
       <span class="filter-pill ${filterState==='all'?'active':''}"     onclick="setFilter('all')">Tots (${active.length})</span>
       <span class="filter-pill ${filterState==='pagat'?'active':''}"   onclick="setFilter('pagat')">✓ Pagats (${active.filter(c=>c.estat==='02 Pagat').length})</span>
       <span class="filter-pill orange ${filterState==='pendent'?'active':''}" onclick="setFilter('pendent')">⚠ Pendents (${active.filter(c=>c.estat==='01 Pendent').length})</span>
-      ${noAplica.length > 0 ? `<span class="filter-pill ${filterState==='noaplica'?'active':''}" style="${filterState==='noaplica'?'background:var(--surface3);border-color:var(--border2);color:var(--text2)':''}" onclick="setFilter('noaplica')">∅ No Aplica (${noAplica.length})</span>` : ''}
     </div>
     <div class="toolbar" style="margin-bottom:8px">
       ${CATEGORIES.map(cat => {
@@ -10179,7 +10158,7 @@ function updateSessions(id, delta) {
     const total  = clientTotal(client);
     const totalR = Math.round(total * 100) / 100;
     const paidR  = Math.round((client.paid||0) * 100) / 100;
-    if (paidR > totalR + 0.10) {
+    if (paidR > totalR + 0.01) {
       client.estat = '87 Excés Pagament';
     } else {
       client.estat = clientPending(client) > 0 ? '01 Pendent' : '02 Pagat';
@@ -10188,39 +10167,6 @@ function updateSessions(id, delta) {
   saveData();
   refreshClientRow(id);
   updateKPIs();
-}
-
-function setSessionsDirect(id, val) {
-  const month = getCurrentMonth();
-  const client = month.clients.find(c => c.id === id);
-  if (!client) return;
-  const n = parseInt(val);
-  if (!isFinite(n) || n < 0) return;
-  client.sessions = Math.min(n, 99);
-  if (client.sessions === 0 || client.priceOverride === 0) {
-    client.estat = '99 No Aplica';
-  } else if (!hasTarifes(client.cat) && client.priceOverride == null) {
-    client.estat = '88 Sense Tarifa';
-  } else {
-    const total  = clientTotal(client);
-    const totalR = Math.round(total * 100) / 100;
-    const paidR  = Math.round((client.paid||0) * 100) / 100;
-    client.estat = paidR > totalR + 0.10 ? '87 Excés Pagament' : (clientPending(client) > 0 ? '01 Pendent' : '02 Pagat');
-  }
-  saveData();
-  refreshClientRow(id);
-  updateKPIs();
-}
-
-function setSessionsDoneDirect(id, val) {
-  const month = getCurrentMonth();
-  const client = month.clients.find(c => c.id === id);
-  if (!client) return;
-  const n = parseInt(val);
-  if (!isFinite(n) || n < 0) return;
-  client.sessionsDone = Math.min(n, Math.max(client.sessions + 10, 199));
-  saveData();
-  refreshClientRow(id);
 }
 
 function updateSessionsDone(id, delta) {
@@ -10253,7 +10199,7 @@ function updatePaid(id, value) {
   const total  = clientTotal(client);
   const paidR  = client.paid;
   const totalR = Math.round(total * 100) / 100;
-  if (paidR > totalR + 0.10) {
+  if (paidR > totalR + 0.01) {
     client.estat = '87 Excés Pagament';
     toast(`⚠ Pagament en excés: ${fmt(paidR - totalR)} de més`, 'warning');
   } else {
@@ -10273,7 +10219,7 @@ function updateDescompte(id, value) {
   const total  = clientTotal(client);
   const paidR  = Math.round((client.paid || 0) * 100) / 100;
   const totalR = Math.round(total * 100) / 100;
-  if (paidR > totalR + 0.10) {
+  if (paidR > totalR + 0.01) {
     client.estat = '87 Excés Pagament';
   } else {
     client.estat = clientPending(client) > 0 ? '01 Pendent' : '02 Pagat';
@@ -10307,11 +10253,7 @@ function refreshClientRow(id) {
       ${!isClosed?`
         <div style="display:flex;align-items:center;gap:4px">
           <button onclick="updateSessions('${c.id}',-1)" style="width:20px;height:20px;border-radius:50%;border:1px solid var(--border2);background:var(--surface2);color:var(--text2);font-size:12px;cursor:pointer;display:flex;align-items:center;justify-content:center" onmouseover="this.style.color='var(--red)';this.style.borderColor='var(--red)'" onmouseout="this.style.color='var(--text2)';this.style.borderColor='var(--border2)'">−</button>
-          <input type="number" value="${c.sessions}" min="0" max="99"
-            style="width:38px;text-align:center;background:transparent;border:none;border-bottom:1px solid var(--border2);color:var(--text);font-family:var(--font-mono);font-size:13px;padding:1px 2px;-moz-appearance:textfield"
-            onchange="setSessionsDirect('${c.id}',this.value)"
-            onkeydown="if(event.key==='Enter')this.blur()"
-            onfocus="this.select()" />
+          <span class="money" style="min-width:20px;text-align:center">${c.sessions}</span>
           <button onclick="updateSessions('${c.id}',+1)" style="width:20px;height:20px;border-radius:50%;border:1px solid var(--border2);background:var(--surface2);color:var(--text2);font-size:12px;cursor:pointer;display:flex;align-items:center;justify-content:center" onmouseover="this.style.color='var(--accent)';this.style.borderColor='var(--accent)'" onmouseout="this.style.color='var(--text2)';this.style.borderColor='var(--border2)'">+</button>
         </div>
       `:`<span class="money">${c.sessions}</span>`}
@@ -10321,11 +10263,7 @@ function refreshClientRow(id) {
         <div style="display:flex;align-items:center;gap:5px">
           <button onclick="updateSessionsDone('${c.id}',-1)" style="width:22px;height:22px;border-radius:50%;border:1px solid var(--border2);background:var(--surface2);color:var(--text2);font-size:13px;cursor:pointer;display:flex;align-items:center;justify-content:center" onmouseover="this.style.color='var(--red)';this.style.borderColor='var(--red)'" onmouseout="this.style.color='var(--text2)';this.style.borderColor='var(--border2)'">−</button>
           <div style="text-align:center;min-width:36px">
-            <input type="number" value="${c.sessionsDone||0}" min="0"
-              style="width:32px;text-align:center;background:transparent;border:none;border-bottom:1px solid var(--border2);color:var(--text);font-family:var(--font-mono);font-size:14px;font-weight:600;padding:1px 2px;-moz-appearance:textfield"
-              onchange="setSessionsDoneDirect('${c.id}',this.value)"
-              onkeydown="if(event.key==='Enter')this.blur()"
-              onfocus="this.select()" />
+            <span class="sessions-done" style="font-size:14px;font-weight:600">${c.sessionsDone||0}</span>
             <span class="sessions-total"> / ${c.sessions}</span>
           </div>
           <button onclick="updateSessionsDone('${c.id}',+1)" style="width:22px;height:22px;border-radius:50%;border:1px solid var(--border2);background:var(--surface2);color:var(--text2);font-size:13px;cursor:pointer;display:flex;align-items:center;justify-content:center" onmouseover="this.style.color='var(--accent)';this.style.borderColor='var(--accent)'" onmouseout="this.style.color='var(--text2)';this.style.borderColor='var(--border2)'">+</button>
@@ -10565,8 +10503,8 @@ function openAddClient() {
   });
   const existingClients = Object.values(clientMap).sort((a,b)=>a.name.localeCompare(b.name));
 
-  // Check if already in current month (exclude 99 No Aplica — no apareixen a la taula)
-  const currentNames = new Set((getCurrentMonth().clients||[]).filter(c=>c.estat!=='99 No Aplica').map(c=>c.name.toLowerCase()));
+  // Check if already in current month
+  const currentNames = new Set((getCurrentMonth().clients||[]).map(c=>c.name.toLowerCase()));
 
   showModal(`
     <div class="modal-header">
@@ -12975,7 +12913,7 @@ function renderAjuda(container, actions) {
   <div style="max-width:860px;margin:0 auto;display:flex;flex-direction:column;gap:16px">
 
     <div style="background:var(--accent-dim2);border:1px solid rgba(200,240,69,0.25);border-radius:var(--radius);padding:22px 26px">
-      <div style="font-family:var(--font-syne);font-weight:800;font-size:20px;color:var(--accent);margin-bottom:6px">GOALS — Gestió de Pagaments v7.5</div>
+      <div style="font-family:var(--font-syne);font-weight:800;font-size:20px;color:var(--accent);margin-bottom:6px">GOALS — Gestió de Pagaments v7.6</div>
       <div style="color:var(--text2);font-size:13.5px;line-height:1.7">
         Aplicació per gestionar clients, sessions, pagaments i finances del centre.
         Les dades es guarden localment al navegador i es sincronitzen automàticament amb Google Drive quan estàs connectat.
@@ -13110,7 +13048,7 @@ function renderAjuda(container, actions) {
     ])}
 
     <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:18px 20px;text-align:center;color:var(--text3);font-size:11px;font-family:var(--font-mono);line-height:2">
-      GOALS v7.5 · Local: goals_data_v3 · Núvol: Google Drive (goals_data.json)<br>
+      GOALS v7.6 · Local: goals_data_v3 · Núvol: Google Drive (goals_data.json)<br>
       Backup manual recomanat mensualment · Tecla Esc per tancar modals
     </div>
 
@@ -13216,7 +13154,9 @@ function renderMobileSessions(container) {
 
 function renderMobileSessionsToolbar(toolbar) {
   const month = getCurrentMonth();
-  const active = (month.clients||[]).filter(c => c.estat !== '99 No Aplica' );
+  const allClients = month.clients||[];
+  const active = allClients.filter(c => c.estat !== '99 No Aplica' );
+  const noAplica = allClients.filter(c => c.estat === '99 No Aplica');
   const totalPaid    = active.reduce((s,c) => s+(c.paid||0), 0);
   const totalPending = active.reduce((s,c) => s+clientPending(c), 0);
   const pendingCount = active.filter(c => c.estat==='01 Pendent').length;
@@ -13250,6 +13190,7 @@ function renderMobileSessionsToolbar(toolbar) {
       <span class="mobile-filter-pill ${mobileFilter==='all'?'active':''}" onclick="mobileFilter='all';renderMobileSessionsCards(document.getElementById('mobile-content'));renderMobileSessionsToolbar(document.getElementById('mobile-toolbar'))">Tots (${active.length})</span>
       <span class="mobile-filter-pill ${mobileFilter==='pagat'?'active':''}" onclick="mobileFilter='pagat';renderMobileSessionsCards(document.getElementById('mobile-content'));renderMobileSessionsToolbar(document.getElementById('mobile-toolbar'))">✓ Pagats (${active.filter(c=>c.estat==='02 Pagat').length})</span>
       <span class="mobile-filter-pill orange ${mobileFilter==='pendent'?'active':''}" onclick="mobileFilter='pendent';renderMobileSessionsCards(document.getElementById('mobile-content'));renderMobileSessionsToolbar(document.getElementById('mobile-toolbar'))">⚠ Pendents (${pendingCount})</span>
+      ${noAplica.length > 0 ? `<span class="mobile-filter-pill gray ${mobileFilter==='noaplica'?'active':''}" onclick="mobileFilter='noaplica';renderMobileSessionsCards(document.getElementById('mobile-content'));renderMobileSessionsToolbar(document.getElementById('mobile-toolbar'))">∅ No Aplica (${noAplica.length})</span>` : ''}
     </div>
   `;
 }
@@ -13257,9 +13198,11 @@ function renderMobileSessionsToolbar(toolbar) {
 function renderMobileSessionsCards(container) {
   const month = getCurrentMonth();
   const isClosed = !!month.closed;
-  const active = (month.clients||[]).filter(c => c.estat !== '99 No Aplica' );
+  const allClients2 = month.clients||[];
+  const active = allClients2.filter(c => c.estat !== '99 No Aplica' );
+  const noAplicaCards = allClients2.filter(c => c.estat === '99 No Aplica');
 
-  let filtered = active.slice();
+  let filtered = mobileFilter === 'noaplica' ? noAplicaCards.slice() : active.slice();
   if (mobileSearch) {
     const q = mobileSearch.toLowerCase();
     filtered = filtered.filter(c => c.name.toLowerCase().includes(q));
@@ -13303,23 +13246,13 @@ function renderMobileSessionsCards(container) {
         <div class="mobile-control-group">
           <span class="mobile-control-label">Contractades</span>
           <button class="mobile-btn minus" onclick="updateSessions('${c.id}',-1);renderMobileContent()">−</button>
-          <input type="number" value="${c.sessions}" min="0" max="99"
-            class="mobile-count"
-            style="width:44px;background:transparent;border:none;border-bottom:1px solid var(--border2);text-align:center;color:var(--text);-moz-appearance:textfield"
-            onchange="setSessionsDirect('${c.id}',this.value);renderMobileContent()"
-            onkeydown="if(event.key==='Enter')this.blur()"
-            onfocus="this.select()" />
+          <span class="mobile-count">${c.sessions}</span>
           <button class="mobile-btn plus" onclick="updateSessions('${c.id}',+1);renderMobileContent()">+</button>
         </div>
         <div class="mobile-control-group">
           <span class="mobile-control-label">Realitzades</span>
           <button class="mobile-btn minus" onclick="updateSessionsDone('${c.id}',-1);renderMobileContent()">−</button>
-          <input type="number" value="${c.sessionsDone||0}" min="0"
-            class="mobile-count"
-            style="width:44px;background:transparent;border:none;border-bottom:1px solid var(--border2);text-align:center;color:var(--text);-moz-appearance:textfield"
-            onchange="setSessionsDoneDirect('${c.id}',this.value);renderMobileContent()"
-            onkeydown="if(event.key==='Enter')this.blur()"
-            onfocus="this.select()" />
+          <span class="mobile-count">${c.sessionsDone||0}</span>
           <button class="mobile-btn plus" onclick="updateSessionsDone('${c.id}',+1);renderMobileContent()">+</button>
         </div>
         <div class="mobile-control-group">
@@ -13491,7 +13424,7 @@ function renderMobileResum(container) {
 // GOOGLE DRIVE SYNC
 // ══════════════════════════════════════════════
 
-const APP_VERSION = 'v7.5';
+const APP_VERSION = 'v7.6';
 const GDRIVE_CLIENT_ID = '213127646668-v2lts4jl101jpq6m279s4cr2ps9ga3j5.apps.googleusercontent.com';
 const GDRIVE_SCOPE     = 'https://www.googleapis.com/auth/drive.appdata';
 const GDRIVE_FILE_NAME = 'goals_data.json';
@@ -13592,9 +13525,7 @@ async function gdriveLoadOrCreate() {
 
       if (driveDate > localDate || !localRaw) {
         // Drive és més nou — carregar del Drive
-        // Assignar DB primer perquè getPrice use les tarifes correctes del Drive
-        DB = driveData;
-        recalculateAllEstats(DB);
+        DB = recalculateAllEstats(driveData);
         // Recalcular estats
         Object.keys(DB.months || {}).forEach(mk => {
           (DB.months[mk].clients || []).forEach(c => {
@@ -13770,15 +13701,11 @@ function showConnectScreen() {
 
 async function gdriveConnectSilent() {
   return new Promise((resolve, reject) => {
-    // Timeout: si el silent login no respon en 8s (comú a mòbil/Safari), rebutjar
-    const timeout = setTimeout(() => reject('timeout'), 8000);
-
     const client = google.accounts.oauth2.initTokenClient({
       client_id: GDRIVE_CLIENT_ID,
       scope: GDRIVE_SCOPE,
       prompt: '',
       callback: async (resp) => {
-        clearTimeout(timeout);
         if (resp.error) { reject(resp.error); return; }
         gdriveToken = resp.access_token;
         localStorage.setItem('goals_gdrive_was_connected', '1');
