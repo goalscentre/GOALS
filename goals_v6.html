@@ -785,7 +785,7 @@
     <div class="sidebar-logo">
       <h1>GOALS</h1>
       <span>GESTIÓ DE PAGAMENTS</span>
-      <span id="sidebar-version" style="font-size:9px;color:#333;font-family:'DM Mono',monospace;letter-spacing:0.5px;margin-top:2px">v7.7</span>
+      <span id="sidebar-version" style="font-size:9px;color:#333;font-family:'DM Mono',monospace;letter-spacing:0.5px;margin-top:2px">v7.8</span>
     </div>
 
     <div class="sidebar-section">
@@ -10150,6 +10150,7 @@ function updateSessions(id, delta) {
   const client = month.clients.find(c => c.id === id);
   if (!client) return;
   client.sessions = Math.max(0, (client.sessions||0) + delta);
+  client.updatedAt = Date.now();
   if (client.sessions === 0 || client.priceOverride === 0) {
     client.estat = '99 No Aplica';
   } else if (!hasTarifes(client.cat) && client.priceOverride == null) {
@@ -10176,6 +10177,7 @@ function updateSessionsDone(id, delta) {
   const next = Math.max(0, Math.min((client.sessionsDone||0) + delta, client.sessions + 10));
   if (next === (client.sessionsDone||0)) return;
   client.sessionsDone = next;
+  client.updatedAt = Date.now();
   saveData();
   refreshClientRow(id);
 }
@@ -10196,6 +10198,7 @@ function updatePaid(id, value) {
   if (!client) return;
   const raw = parseFloat(value);
   client.paid = (!isFinite(raw) || raw < 0) ? 0 : Math.round(raw * 100) / 100;
+  client.updatedAt = Date.now();
   const total  = clientTotal(client);
   const paidR  = client.paid;
   const totalR = Math.round(total * 100) / 100;
@@ -10216,6 +10219,7 @@ function updateDescompte(id, value) {
   const client = month.clients.find(c => c.id === id);
   if (!client) return;
   client.descompte = Math.min(100, Math.max(0, parseFloat(value)||0));
+  client.updatedAt = Date.now();
   const total  = clientTotal(client);
   const paidR  = Math.round((client.paid || 0) * 100) / 100;
   const totalR = Math.round(total * 100) / 100;
@@ -10840,10 +10844,10 @@ function saveClient(id) {
   const month = getCurrentMonth();
   if (id) {
     const idx = month.clients.findIndex(c => c.id === id);
-    if (idx>=0) month.clients[idx] = { ...month.clients[idx], name, sessions, sessionsDone, priceOverride, descompte, paid, via, estat, cat, genere, mobil, email, notes };
+    if (idx>=0) month.clients[idx] = { ...month.clients[idx], name, sessions, sessionsDone, priceOverride, descompte, paid, via, estat, cat, genere, mobil, email, notes, updatedAt: Date.now() };
     toast('Client actualitzat ✓');
   } else {
-    month.clients.push({ id:uid(), name, sessions, sessionsDone, priceOverride, descompte, paid, via, estat, cat, genere, mobil, email, notes });
+    month.clients.push({ id:uid(), name, sessions, sessionsDone, priceOverride, descompte, paid, via, estat, cat, genere, mobil, email, notes, updatedAt: Date.now() });
     toast('Client afegit ✓');
   }
   saveData(); closeModal(); render();
@@ -13424,7 +13428,7 @@ function renderMobileResum(container) {
 // GOOGLE DRIVE SYNC
 // ══════════════════════════════════════════════
 
-const APP_VERSION = 'v7.7';
+const APP_VERSION = 'v7.8';
 const GDRIVE_CLIENT_ID = '213127646668-v2lts4jl101jpq6m279s4cr2ps9ga3j5.apps.googleusercontent.com';
 const GDRIVE_SCOPE     = 'https://www.googleapis.com/auth/drive.appdata';
 const GDRIVE_FILE_NAME = 'goals_data.json';
@@ -13662,6 +13666,13 @@ function launchApp() {
   hideSplash();
   initViewMode();
   if (!isMobileView) render();
+  // Arrancar sync en temps real si hi ha token actiu
+  if (gdriveToken) {
+    startSyncListeners();
+    const expiry = parseInt(localStorage.getItem('gdrive_token_expiry') || '0');
+    const remainingMs = expiry - Date.now();
+    if (remainingMs > 0) scheduleTokenRefresh(remainingMs);
+  }
 }
 
 async function initApp() {
@@ -13748,6 +13759,152 @@ function gdriveConnectFromSplash() {
     }
   });
   client.requestAccessToken();
+}
+
+// ── SYNC EN TEMPS REAL ──────────────────────────────────────────────
+let syncLastRun       = 0;
+let syncActivityTimer = null;
+let syncPassiveTimer  = null;
+let tokenRefreshTimer = null;
+
+// Tanca sessió i torna al login
+function gdriveForceLogout(reason) {
+  gdriveToken  = null;
+  gdriveFileId = null;
+  clearInterval(syncPassiveTimer);
+  clearTimeout(syncActivityTimer);
+  clearTimeout(tokenRefreshTimer);
+  localStorage.removeItem('goals_gdrive_was_connected');
+  localStorage.removeItem('gdrive_token_expiry');
+  // Mostrar pantalla de login
+  const splash = document.getElementById('splash-screen');
+  if (splash) {
+    splash.style.display = 'flex';
+    splash.style.opacity = '1';
+    const content = document.getElementById('splash-content');
+    if (content) {
+      content.innerHTML =
+        '<div style="color:var(--red);font-size:13px;text-align:center;margin-bottom:16px">' +
+        '⚠️ Sessió tancada: ' + (reason||'connexió perduda') + '</div>' +
+        '<button onclick="gdriveConnectFromSplash()" style="background:var(--accent);color:#0f0f0f;border:none;padding:14px 28px;border-radius:10px;font-family:var(--font-sans);font-size:15px;font-weight:600;cursor:pointer;width:100%;display:flex;align-items:center;justify-content:center;gap:10px">' +
+        '<svg width="20" height="20" viewBox="0 0 24 24"><path fill="currentColor" d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 14H9V8h2v8zm4 0h-2V8h2v8z"/></svg>' +
+        'Reconnectar amb Google Drive</button>';
+    }
+  }
+}
+
+// Refresc silenciós del token
+function scheduleTokenRefresh(expiresInMs) {
+  clearTimeout(tokenRefreshTimer);
+  const refreshIn = Math.max(0, expiresInMs - 15 * 60 * 1000); // 15 min abans
+  tokenRefreshTimer = setTimeout(async () => {
+    try {
+      await new Promise((resolve, reject) => {
+        let settled = false;
+        const timer = setTimeout(() => {
+          if (!settled) { settled = true; reject('timeout'); }
+        }, 8000);
+        const client = google.accounts.oauth2.initTokenClient({
+          client_id: GDRIVE_CLIENT_ID,
+          scope: GDRIVE_SCOPE,
+          prompt: '',
+          callback: (resp) => {
+            if (settled) return;
+            settled = true;
+            clearTimeout(timer);
+            if (resp.error) { reject(resp.error); return; }
+            gdriveToken = resp.access_token;
+            const expiry = Date.now() + (resp.expires_in * 1000);
+            localStorage.setItem('gdrive_token_expiry', expiry);
+            scheduleTokenRefresh(resp.expires_in * 1000);
+            resolve();
+          }
+        });
+        client.requestAccessToken();
+      });
+    } catch(e) {
+      gdriveForceLogout('token caducat');
+    }
+  }, refreshIn);
+}
+
+// Fusió de dades del mes visible: guanya el client amb updatedAt més recent
+async function syncCurrentMonth() {
+  if (!gdriveToken) return;
+  const now = Date.now();
+  if (now - syncLastRun < 30000) return; // mínim 30 s entre syncs
+  syncLastRun = now;
+
+  try {
+    // Llegir el fitxer del Drive
+    const search = await fetch(
+      'https://www.googleapis.com/drive/v3/files?spaces=appDataFolder&q=name%3D%27' + GDRIVE_FILE_NAME + '%27&fields=files(id,modifiedTime)',
+      { headers: { Authorization: 'Bearer ' + gdriveToken } }
+    );
+    if (search.status === 401) { gdriveForceLogout('sessió expirada'); return; }
+    const searchData = await search.json();
+    if (!searchData.files || !searchData.files.length) return;
+
+    const fileId = searchData.files[0].id;
+    const resp = await fetch(
+      'https://www.googleapis.com/drive/v3/files/' + fileId + '?alt=media',
+      { headers: { Authorization: 'Bearer ' + gdriveToken } }
+    );
+    if (resp.status === 401) { gdriveForceLogout('sessió expirada'); return; }
+    const driveDB = await resp.json();
+
+    // Fusionar només el mes visible
+    const mk = DB.currentMonth;
+    if (!driveDB.months || !driveDB.months[mk]) return;
+
+    const driveClients = driveDB.months[mk].clients || [];
+    const localClients = DB.months[mk].clients || [];
+    let changed = false;
+
+    driveClients.forEach(dc => {
+      const localIdx = localClients.findIndex(lc => lc.id === dc.id);
+      if (localIdx === -1) {
+        // Client nou al Drive que no tenim localment
+        localClients.push(dc);
+        changed = true;
+      } else {
+        const lc = localClients[localIdx];
+        const driveTs = dc.updatedAt || 0;
+        const localTs = lc.updatedAt || 0;
+        if (driveTs > localTs) {
+          localClients[localIdx] = dc;
+          changed = true;
+        }
+      }
+    });
+
+    if (changed) {
+      DB.months[mk].clients = localClients;
+      saveData();
+      render();
+      toast('☁️ Dades actualitzades del Drive', 'info');
+    }
+  } catch(e) {
+    // Error de xarxa — no tancar sessió, pot ser temporal
+    console.warn('syncCurrentMonth error:', e);
+  }
+}
+
+// Activitat de l'usuari dispara sync (amb debounce de 30s)
+function onUserActivity() {
+  if (!gdriveToken) return;
+  clearTimeout(syncActivityTimer);
+  syncActivityTimer = setTimeout(() => {
+    syncCurrentMonth();
+  }, 1000); // 1s de debounce per no disparar en cada tecla
+}
+
+function startSyncListeners() {
+  ['click','keydown','scroll','touchstart'].forEach(evt => {
+    document.addEventListener(evt, onUserActivity, { passive: true });
+  });
+  // Polling passiu cada 5 minuts
+  syncPassiveTimer = setInterval(syncCurrentMonth, 5 * 60 * 1000);
 }
 
 window.addEventListener('load', () => { setTimeout(initApp, 500); });
