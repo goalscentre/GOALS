@@ -846,7 +846,6 @@
         <div class="gdrive-dot offline" id="gdrive-dot"></div>
         <span id="gdrive-status-text">Drive</span>
         <button id="gdrive-btn" onclick="gdriveAction()" style="background:none;border:none;color:var(--text3);cursor:pointer;font-size:11px;font-family:var(--font-mono);padding:0" onmouseover="this.style.color='var(--accent)'" onmouseout="this.style.color='var(--text3)'">🔗</button>
-        <button id="gdrive-sync-btn" onclick="gdriveSyncNow()" style="display:none;background:none;border:none;color:var(--text3);cursor:pointer;font-size:13px;padding:0" title="Sync ara">↻</button>
       </div>
     </div>
     <!-- Fixed stats panel (clients page only) -->
@@ -13408,9 +13407,6 @@ function renderMobileResum(container) {
           <span style="font-size:12px;font-family:var(--font-mono);color:${gdriveToken?'var(--accent)':'var(--text2)'}">${gdriveToken?'Connectat':'No connectat'}</span>
         </div>
         ${gdriveToken?`
-        <button class="btn btn-secondary" style="width:100%;justify-content:center;color:var(--accent)" onclick="gdriveSyncNow();renderMobileContent()">
-          ↻ Sincronitzar ara
-        </button>
         <button class="btn btn-secondary" style="width:100%;justify-content:center;color:var(--red);margin-top:8px" onclick="gdriveAction();renderMobileContent()">
           🔓 Desconnectar Drive
         </button>
@@ -13443,7 +13439,6 @@ function gdriveSetStatus(type, text) {
   const dot  = document.getElementById('gdrive-dot');
   const span = document.getElementById('gdrive-status-text');
   const btn  = document.getElementById('gdrive-btn');
-  const sync = document.getElementById('gdrive-sync-btn');
   if (!dot) return;
   dot.className = 'gdrive-dot ' + type;
   if (type === 'connected') {
@@ -13451,22 +13446,18 @@ function gdriveSetStatus(type, text) {
     span.style.color = 'var(--accent)';
     btn.textContent  = '🔓';
     btn.title        = 'Desconnectar Google Drive';
-    sync.style.display = 'inline';
   } else if (type === 'syncing') {
     span.textContent = '↑';
     span.style.color = 'var(--blue)';
-    sync.style.display = 'none';
   } else if (type === 'error') {
     span.textContent = 'Error';
     span.style.color = 'var(--red)';
     btn.textContent  = '🔗';
-    sync.style.display = 'none';
   } else {
     span.textContent = 'Drive';
     span.style.color = 'var(--text3)';
     btn.textContent  = '🔗';
     btn.title        = 'Connectar amb Google Drive';
-    sync.style.display = 'none';
   }
 }
 
@@ -13681,8 +13672,7 @@ async function initApp() {
   if (typeof google === 'undefined' || !google.accounts) {
     showSplash(
       '<div style="color:#e57;font-size:13px;font-family:var(--font-mono);text-align:center;margin-bottom:8px">\u26a0 Sense connexi\u00f3 a internet</div>' +
-      '<div style="color:#555;font-size:11px;font-family:var(--font-mono);text-align:center;margin-bottom:20px">Es mostraran les dades locals</div>' +
-      '<button onclick="launchApp()" style="background:var(--accent);color:#0f0f0f;border:none;padding:12px 28px;border-radius:10px;font-family:var(--font-sans);font-size:15px;font-weight:600;cursor:pointer;width:100%">Continuar offline</button>'
+      '<div style="color:#555;font-size:11px;font-family:var(--font-mono);text-align:center">Cal connexió a internet per usar l\'aplicació</div>'
     );
     return;
   }
@@ -13706,7 +13696,6 @@ function showConnectScreen() {
     '<div style="color:#888;font-size:13px;font-family:var(--font-sans);text-align:center;line-height:1.6;margin-bottom:16px">Connecta amb Google Drive per<br>carregar les dades actualitzades</div>' +
     '<button onclick="gdriveConnectFromSplash()" style="background:var(--accent);color:#0f0f0f;border:none;padding:14px 28px;border-radius:10px;font-family:var(--font-sans);font-size:15px;font-weight:600;cursor:pointer;width:100%;display:flex;align-items:center;justify-content:center;gap:10px">' +
     '<span>\u2601\ufe0f</span> Connectar amb Google Drive</button>' +
-    '<button onclick="launchApp()" style="background:transparent;color:#444;border:1px solid #333;padding:11px 28px;border-radius:10px;font-family:var(--font-sans);font-size:13px;cursor:pointer;width:100%;margin-top:8px">Continuar offline</button>'
   );
 }
 
@@ -13747,7 +13736,6 @@ function gdriveConnectFromSplash() {
         showSplash(
           '<div style="color:#e57;font-size:13px;text-align:center;margin-bottom:16px">Error: ' + resp.error + '</div>' +
           '<button onclick="gdriveConnectFromSplash()" style="background:var(--accent);color:#0f0f0f;border:none;padding:12px 28px;border-radius:10px;font-size:14px;font-weight:600;cursor:pointer;width:100%">Tornar a intentar</button>' +
-          '<button onclick="launchApp()" style="background:transparent;color:#444;border:1px solid #333;padding:10px 28px;border-radius:10px;font-size:13px;cursor:pointer;width:100%;margin-top:8px">Continuar offline</button>'
         );
         return;
       }
