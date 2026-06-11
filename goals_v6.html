@@ -785,7 +785,7 @@
     <div class="sidebar-logo">
       <h1>GOALS</h1>
       <span>GESTIÓ DE PAGAMENTS</span>
-      <span id="sidebar-version" style="font-size:9px;color:#333;font-family:'DM Mono',monospace;letter-spacing:0.5px;margin-top:2px">v7.8</span>
+      <span id="sidebar-version" style="font-size:9px;color:#333;font-family:'DM Mono',monospace;letter-spacing:0.5px;margin-top:2px">v7.9</span>
     </div>
 
     <div class="sidebar-section">
@@ -824,7 +824,10 @@
 
     <div class="month-selector">
       <label>MES ACTIU</label>
-      <select id="month-select" onchange="changeMonth(this.value)"></select>
+      <div style="display:flex;gap:6px;align-items:center">
+        <select id="month-select" onchange="changeMonth(this.value)" style="flex:1"></select>
+        <button onclick="openDeleteMonth()" title="Eliminar mes actiu" style="background:none;border:1px solid var(--border);color:var(--text3);border-radius:var(--radius-sm);padding:5px 7px;cursor:pointer;font-size:13px;flex-shrink:0;line-height:1" onmouseover="this.style.borderColor='var(--red)';this.style.color='var(--red)'" onmouseout="this.style.borderColor='var(--border)';this.style.color='var(--text3)'">&#x1F5D1;</button>
+      </div>
     </div>
   </nav>
 
@@ -12117,6 +12120,59 @@ function openAddMonth() {
   `);
 }
 
+function openDeleteMonth() {
+  var key = DB.currentMonth;
+  var month = DB.months[key];
+  if (!month) return;
+
+  var totalMonths = Object.keys(DB.months).length;
+  if (totalMonths <= 1) {
+    toast("No es pot eliminar l\u2019\u00fanic mes existent", 'error');
+    return;
+  }
+  if (month.closed) {
+    toast("No es pot eliminar un mes tancat", 'error');
+    return;
+  }
+
+  var numClients = (month.clients || []).length;
+  var hasDades = (month.clients || []).some(function(c) {
+    return (c.paid || 0) > 0 || (c.sessions || 0) > 0;
+  });
+  var warning = hasDades
+    ? '<div style="margin-top:12px;padding:10px 14px;background:rgba(255,80,80,0.08);border:1px solid rgba(255,80,80,0.25);border-radius:var(--radius-sm);font-size:12px;color:var(--red)">&#x26A0;&#xFE0F; Aquest mes t\u00e9 clients amb dades. Si l\u2019elimines, perdr\u00e0s tota la informaci\u00f3.</div>'
+    : '';
+
+  var numText = numClients + ' client' + (numClients !== 1 ? 's' : '');
+  showModal(
+    '<div class="modal-header"><h3>&#x1F5D1; Eliminar Mes</h3><button class="btn-icon" onclick="closeModal()">&#x2715;</button></div>' +
+    '<div class="modal-body">' +
+      '<p style="color:var(--text2);font-size:14px">Segur que vols eliminar <strong style="color:var(--text)">' + escH(month.label) + '</strong>?</p>' +
+      '<p style="color:var(--text3);font-size:12px;margin-top:8px">' + numText + ' \u00b7 Aquesta acci\u00f3 no es pot desfer.</p>' +
+      warning +
+    '</div>' +
+    '<div class="modal-footer">' +
+      '<button class="btn btn-secondary" onclick="closeModal()">Cancel\u00b7lar</button>' +
+      '<button class="btn" style="background:var(--red);color:#fff;border:none;padding:10px 20px;border-radius:var(--radius-sm);font-family:var(--font-sans);font-size:14px;font-weight:600;cursor:pointer" onclick="deleteMonth()">Eliminar</button>' +
+    '</div>'
+  );
+}
+
+function deleteMonth() {
+  var key = DB.currentMonth;
+  var label = DB.months[key].label;
+  var sortedKeys = Object.keys(DB.months).sort();
+  var idx = sortedKeys.indexOf(key);
+  var nextKey = sortedKeys[idx + 1] || sortedKeys[idx - 1];
+  delete DB.months[key];
+  DB.currentMonth = nextKey;
+  saveData();
+  closeModal();
+  render();
+  toast(label + ' eliminat \u2713');
+}
+
+
 function createMonth() {
   const year = document.getElementById('m-year').value;
   const month = document.getElementById('m-month').value;
@@ -12130,7 +12186,7 @@ function createMonth() {
   if (copyFrom && DB.months[copyFrom]) {
     // Copy clients with reset payment status
     clients = DB.months[copyFrom].clients.filter(c => c.estat !== '99 No Aplica' ).map(c => ({
-      ...c, id: uid(), paid: 0, via: c.via || '01 Ingrés', estat: '01 Pendent', sessionsDone: 0
+      ...c, id: uid(), paid: 0, sessions: 0, via: c.via || '01 Ingrés', estat: '01 Pendent', sessionsDone: 0
     }));
   }
 
@@ -13424,7 +13480,7 @@ function renderMobileResum(container) {
 // GOOGLE DRIVE SYNC
 // ══════════════════════════════════════════════
 
-const APP_VERSION = 'v7.8';
+const APP_VERSION = 'v7.9';
 const GDRIVE_CLIENT_ID = '213127646668-v2lts4jl101jpq6m279s4cr2ps9ga3j5.apps.googleusercontent.com';
 const GDRIVE_SCOPE     = 'https://www.googleapis.com/auth/drive.appdata';
 const GDRIVE_FILE_NAME = 'goals_data.json';
