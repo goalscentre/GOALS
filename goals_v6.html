@@ -775,7 +775,7 @@
   <div id="splash-screen" style="display:none;position:fixed;inset:0;background:#0f0f0f;z-index:9999;flex-direction:column;align-items:center;justify-content:center;gap:0">
     <img src="icon-512.png" style="width:120px;height:120px;border-radius:24px;margin-bottom:28px" />
     <div style="font-family:'Syne',sans-serif;font-weight:800;font-size:28px;color:#c8f045;margin-bottom:6px">GOALS</div>
-    <div style="font-family:'DM Mono',monospace;font-size:11px;color:#555;letter-spacing:1px;margin-bottom:48px">GESTIÓ DE PAGAMENTS · v7.12</div>
+    <div style="font-family:'DM Mono',monospace;font-size:11px;color:#555;letter-spacing:1px;margin-bottom:48px">GESTIÓ DE PAGAMENTS · v7.13</div>
     <div id="splash-content" style="display:flex;flex-direction:column;align-items:center;gap:12px;width:280px">
       <!-- Content injected by JS -->
     </div>
@@ -785,7 +785,7 @@
     <div class="sidebar-logo">
       <h1>GOALS</h1>
       <span>GESTIÓ DE PAGAMENTS</span>
-      <span id="sidebar-version" style="font-size:9px;color:#333;font-family:'DM Mono',monospace;letter-spacing:0.5px;margin-top:2px">v7.12</span>
+      <span id="sidebar-version" style="font-size:9px;color:#333;font-family:'DM Mono',monospace;letter-spacing:0.5px;margin-top:2px">v7.13</span>
     </div>
 
     <div class="sidebar-section">
@@ -873,6 +873,7 @@
     </div>
     <div style="display:flex;gap:8px;align-items:center">
       <select id="mobile-month-select" onchange="changeMonth(this.value)" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);padding:5px 8px;border-radius:var(--radius-sm);font-size:12px;font-family:'DM Sans',sans-serif"></select>
+      <button onclick="openMobileMonthMenu()" style="background:var(--surface2);border:1px solid var(--border);color:var(--text2);padding:6px 10px;border-radius:var(--radius-sm);font-size:14px;cursor:pointer" title="Opcions del mes">⚙️</button>
       <button class="view-toggle-btn" style="position:static;box-shadow:none;padding:6px 10px" onclick="toggleMobileView()">🖥️</button>
     </div>
   </div>
@@ -12120,6 +12121,26 @@ function openAddMonth() {
   `);
 }
 
+function openMobileMonthMenu() {
+  var month = getCurrentMonth();
+  var isClosed = month && month.closed;
+  var totalMonths = Object.keys(DB.months).length;
+  var canDelete = totalMonths > 1 && !isClosed;
+
+  showModal(
+    '<div class="modal-header"><h3>&#x2699;&#xFE0F; Opcions del Mes</h3><button class="btn-icon" onclick="closeModal()">&#x2715;</button></div>' +
+    '<div class="modal-body" style="display:flex;flex-direction:column;gap:10px">' +
+      '<button class="btn btn-secondary" style="width:100%;justify-content:center;font-size:15px;padding:14px" onclick="closeModal();openExportToMonth()">&#x1F4CB; Copiar a Nou Mes</button>' +
+      (canDelete
+        ? '<button class="btn" style="width:100%;justify-content:center;font-size:15px;padding:14px;background:rgba(255,80,80,0.12);color:var(--red);border:1px solid rgba(255,80,80,0.3)" onclick="closeModal();openDeleteMonth()">&#x1F5D1; Eliminar aquest Mes</button>'
+        : '<button class="btn btn-secondary" style="width:100%;justify-content:center;font-size:15px;padding:14px;opacity:0.4;cursor:not-allowed" disabled>' +
+          (isClosed ? '&#x1F512; Mes tancat (no es pot eliminar)' : '&#x1F5D1; No es pot eliminar l\u2019\u00fanic mes') +
+          '</button>') +
+    '</div>'
+  );
+}
+
+
 function openDeleteMonth() {
   var key = DB.currentMonth;
   var month = DB.months[key];
@@ -12972,7 +12993,7 @@ function renderAjuda(container, actions) {
   <div style="max-width:860px;margin:0 auto;display:flex;flex-direction:column;gap:16px">
 
     <div style="background:var(--accent-dim2);border:1px solid rgba(200,240,69,0.25);border-radius:var(--radius);padding:22px 26px">
-      <div style="font-family:var(--font-syne);font-weight:800;font-size:20px;color:var(--accent);margin-bottom:6px">GOALS — Gestió de Pagaments v7.12</div>
+      <div style="font-family:var(--font-syne);font-weight:800;font-size:20px;color:var(--accent);margin-bottom:6px">GOALS — Gestió de Pagaments v7.13</div>
       <div style="color:var(--text2);font-size:13.5px;line-height:1.7">
         Aplicació per gestionar clients, sessions, pagaments i finances del centre.
         Les dades es guarden localment al navegador i es sincronitzen automàticament amb Google Drive quan estàs connectat.
@@ -13296,9 +13317,14 @@ function renderMobileSessionsCards(container) {
         <span class="mobile-meta-item">💰 ${fmt(c.paid||0)}</span>
         ${clientEstatBadge(c)}
         <span class="mobile-meta-item">${fmt(clientTotal(c))} total</span>
-        ${c.via === '02 Efectiu'
-          ? '<span style="font-size:10px;font-family:var(--font-mono);background:rgba(80,200,120,0.12);color:#50c878;padding:2px 7px;border-radius:4px;white-space:nowrap">Efectiu</span>'
-          : '<span style="font-size:10px;font-family:var(--font-mono);background:rgba(90,180,255,0.12);color:var(--blue);padding:2px 7px;border-radius:4px;white-space:nowrap">Ingrés</span>'}
+        ${isClosed
+          ? (c.via === '02 Efectiu'
+            ? '<span style="font-size:10px;font-family:var(--font-mono);background:rgba(80,200,120,0.12);color:#50c878;padding:2px 7px;border-radius:4px;white-space:nowrap">Efectiu</span>'
+            : '<span style="font-size:10px;font-family:var(--font-mono);background:rgba(90,180,255,0.12);color:var(--blue);padding:2px 7px;border-radius:4px;white-space:nowrap">Ingrés</span>')
+          : `<select onchange="updateClientField('${c.id}','via',this.value);renderMobileContent()" style="font-size:10px;font-family:var(--font-mono);background:var(--surface2);border:1px solid var(--border);color:var(--text);padding:2px 6px;border-radius:4px;cursor:pointer">
+              <option value="01 Ingrés" ${c.via==='01 Ingrés'||!c.via?'selected':''}>📲 Ingrés</option>
+              <option value="02 Efectiu" ${c.via==='02 Efectiu'?'selected':''}>💵 Efectiu</option>
+            </select>`}
       </div>
       <div style="height:3px;background:var(--surface3);border-radius:2px;margin-bottom:10px;overflow:hidden">
         <div style="height:100%;width:${pct}%;background:var(--accent);border-radius:2px"></div>
@@ -13483,7 +13509,7 @@ function renderMobileResum(container) {
 // GOOGLE DRIVE SYNC
 // ══════════════════════════════════════════════
 
-const APP_VERSION = 'v7.12';
+const APP_VERSION = 'v7.13';
 const GDRIVE_CLIENT_ID = '213127646668-v2lts4jl101jpq6m279s4cr2ps9ga3j5.apps.googleusercontent.com';
 const GDRIVE_SCOPE     = 'https://www.googleapis.com/auth/drive.appdata';
 const GDRIVE_FILE_NAME = 'goals_data.json';
