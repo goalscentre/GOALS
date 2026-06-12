@@ -775,7 +775,7 @@
   <div id="splash-screen" style="display:none;position:fixed;inset:0;background:#0f0f0f;z-index:9999;flex-direction:column;align-items:center;justify-content:center;gap:0">
     <img src="icon-512.png" style="width:120px;height:120px;border-radius:24px;margin-bottom:28px" />
     <div style="font-family:'Syne',sans-serif;font-weight:800;font-size:28px;color:#c8f045;margin-bottom:6px">GOALS</div>
-    <div style="font-family:'DM Mono',monospace;font-size:11px;color:#555;letter-spacing:1px;margin-bottom:48px">GESTIÓ DE PAGAMENTS · v7.7</div>
+    <div style="font-family:'DM Mono',monospace;font-size:11px;color:#555;letter-spacing:1px;margin-bottom:48px">GESTIÓ DE PAGAMENTS · v7.12</div>
     <div id="splash-content" style="display:flex;flex-direction:column;align-items:center;gap:12px;width:280px">
       <!-- Content injected by JS -->
     </div>
@@ -785,7 +785,7 @@
     <div class="sidebar-logo">
       <h1>GOALS</h1>
       <span>GESTIÓ DE PAGAMENTS</span>
-      <span id="sidebar-version" style="font-size:9px;color:#333;font-family:'DM Mono',monospace;letter-spacing:0.5px;margin-top:2px">v7.11</span>
+      <span id="sidebar-version" style="font-size:9px;color:#333;font-family:'DM Mono',monospace;letter-spacing:0.5px;margin-top:2px">v7.12</span>
     </div>
 
     <div class="sidebar-section">
@@ -12972,7 +12972,7 @@ function renderAjuda(container, actions) {
   <div style="max-width:860px;margin:0 auto;display:flex;flex-direction:column;gap:16px">
 
     <div style="background:var(--accent-dim2);border:1px solid rgba(200,240,69,0.25);border-radius:var(--radius);padding:22px 26px">
-      <div style="font-family:var(--font-syne);font-weight:800;font-size:20px;color:var(--accent);margin-bottom:6px">GOALS — Gestió de Pagaments v7.7</div>
+      <div style="font-family:var(--font-syne);font-weight:800;font-size:20px;color:var(--accent);margin-bottom:6px">GOALS — Gestió de Pagaments v7.12</div>
       <div style="color:var(--text2);font-size:13.5px;line-height:1.7">
         Aplicació per gestionar clients, sessions, pagaments i finances del centre.
         Les dades es guarden localment al navegador i es sincronitzen automàticament amb Google Drive quan estàs connectat.
@@ -13483,7 +13483,7 @@ function renderMobileResum(container) {
 // GOOGLE DRIVE SYNC
 // ══════════════════════════════════════════════
 
-const APP_VERSION = 'v7.11';
+const APP_VERSION = 'v7.12';
 const GDRIVE_CLIENT_ID = '213127646668-v2lts4jl101jpq6m279s4cr2ps9ga3j5.apps.googleusercontent.com';
 const GDRIVE_SCOPE     = 'https://www.googleapis.com/auth/drive.appdata';
 const GDRIVE_FILE_NAME = 'goals_data.json';
@@ -13561,59 +13561,44 @@ async function gdriveLoadOrCreate() {
       'https://www.googleapis.com/drive/v3/files?spaces=appDataFolder&q=name%3D%27' + GDRIVE_FILE_NAME + '%27&fields=files(id,name,modifiedTime)',
       { headers: { Authorization: 'Bearer ' + gdriveToken } }
     );
+    if (search.status === 401) { gdriveForceLogout('sessió expirada'); return; }
     const data = await search.json();
 
     if (data.files && data.files.length > 0) {
       gdriveFileId = data.files[0].id;
-      // Carregar dades del Drive
+      // Drive és l’única font de veritat — sempre carregar del Drive
       const fileResp = await fetch(
         'https://www.googleapis.com/drive/v3/files/' + gdriveFileId + '?alt=media',
         { headers: { Authorization: 'Bearer ' + gdriveToken } }
       );
+      if (fileResp.status === 401) { gdriveForceLogout('sessió expirada'); return; }
       const driveData = await fileResp.json();
 
-      // Comparar amb localStorage — usar el més recent
-      const localRaw  = localStorage.getItem(STORAGE_KEY);
-      const driveDate = new Date(data.files[0].modifiedTime).getTime();
-      const localDate = parseInt(localStorage.getItem('goals_last_saved') || '0');
-
-      // Comptar clients totals al Drive i al local com a validació
-      const driveTotal = Object.values(driveData.months || {}).reduce((s, m) => s + (m.clients || []).length, 0);
-      const localParsed = localRaw ? JSON.parse(localRaw) : null;
-      const localTotal  = localParsed ? Object.values(localParsed.months || {}).reduce((s, m) => s + (m.clients || []).length, 0) : 0;
-      const driveSeems  = driveTotal > 0 || localTotal === 0;
-
-      if ((driveDate > localDate || !localRaw) && driveSeems) {
-        // Drive és més nou i té dades — carregar del Drive
-        DB = recalculateAllEstats(driveData);
-        // Recalcular estats
-        Object.keys(DB.months || {}).forEach(mk => {
-          (DB.months[mk].clients || []).forEach(c => {
-            if (!c.cat) c.cat = '01';
-            if (c.descompte == null) c.descompte = 0;
-            if (c.notes === 'Pendent pagament' || c.notes === 'Pendent de pagament') c.notes = '';
-            if (c.estat !== '99 No Aplica' ) {
-              const price = c.priceOverride != null ? c.priceOverride : getPrice(c.sessions, c.cat);
-              const base  = price * c.sessions;
-              const total = c.descompte > 0 ? base * (1 - c.descompte / 100) : base;
-              const totalR = Math.round(total * 100) / 100;
-              const paidR  = Math.round((c.paid || 0) * 100) / 100;
-              c.estat = Math.max(0, Math.round((totalR - paidR) * 100) / 100) > 0 ? '01 Pendent' : '02 Pagat';
-            }
-          });
+      DB = recalculateAllEstats(driveData);
+      // Recalcular estats
+      Object.keys(DB.months || {}).forEach(mk => {
+        (DB.months[mk].clients || []).forEach(c => {
+          if (!c.cat) c.cat = '01';
+          if (c.descompte == null) c.descompte = 0;
+          if (c.notes === 'Pendent pagament' || c.notes === 'Pendent de pagament') c.notes = '';
+          if (c.estat !== '99 No Aplica') {
+            const price = c.priceOverride != null ? c.priceOverride : getPrice(c.sessions, c.cat);
+            const base  = price * c.sessions;
+            const total = c.descompte > 0 ? base * (1 - c.descompte / 100) : base;
+            const totalR = Math.round(total * 100) / 100;
+            const paidR  = Math.round((c.paid || 0) * 100) / 100;
+            c.estat = Math.max(0, Math.round((totalR - paidR) * 100) / 100) > 0 ? '01 Pendent' : '02 Pagat';
+          }
         });
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(DB));
-        const modStr = new Date(driveDate).toLocaleTimeString('ca-ES', {hour:'2-digit',minute:'2-digit'});
-        gdriveSetStatus('connected', 'Drive connectat · Carregat ' + modStr);
-        render();
-        toast('Dades carregades de Google Drive ✓');
-      } else {
-        // Local és més nou — pujar al Drive
-        gdriveSetStatus('syncing', 'Pujant dades locals al Drive...');
-        await gdriveSaveNow();
-      }
+      });
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(DB));
+      localStorage.setItem('goals_last_saved', Date.now().toString());
+      const modStr = new Date(data.files[0].modifiedTime).toLocaleTimeString('ca-ES', {hour:'2-digit',minute:'2-digit'});
+      gdriveSetStatus('connected', 'Drive connectat · Carregat ' + modStr);
+      render();
+      toast('Dades carregades de Google Drive ✓');
     } else {
-      // No existeix — crear fitxer nou
+      // No existeix — primera vegada, crear fitxer amb dades locals
       gdriveSetStatus('syncing', 'Creant fitxer al Drive...');
       await gdriveSaveNow();
     }
