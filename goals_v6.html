@@ -785,7 +785,7 @@
     <div class="sidebar-logo">
       <h1>GOALS</h1>
       <span>GESTIÓ DE PAGAMENTS</span>
-      <span id="sidebar-version" style="font-size:9px;color:#333;font-family:'DM Mono',monospace;letter-spacing:0.5px;margin-top:2px">v7.9</span>
+      <span id="sidebar-version" style="font-size:9px;color:#333;font-family:'DM Mono',monospace;letter-spacing:0.5px;margin-top:2px">v7.11</span>
     </div>
 
     <div class="sidebar-section">
@@ -13296,6 +13296,9 @@ function renderMobileSessionsCards(container) {
         <span class="mobile-meta-item">💰 ${fmt(c.paid||0)}</span>
         ${clientEstatBadge(c)}
         <span class="mobile-meta-item">${fmt(clientTotal(c))} total</span>
+        ${c.via === '02 Efectiu'
+          ? '<span style="font-size:10px;font-family:var(--font-mono);background:rgba(80,200,120,0.12);color:#50c878;padding:2px 7px;border-radius:4px;white-space:nowrap">Efectiu</span>'
+          : '<span style="font-size:10px;font-family:var(--font-mono);background:rgba(90,180,255,0.12);color:var(--blue);padding:2px 7px;border-radius:4px;white-space:nowrap">Ingrés</span>'}
       </div>
       <div style="height:3px;background:var(--surface3);border-radius:2px;margin-bottom:10px;overflow:hidden">
         <div style="height:100%;width:${pct}%;background:var(--accent);border-radius:2px"></div>
@@ -13480,7 +13483,7 @@ function renderMobileResum(container) {
 // GOOGLE DRIVE SYNC
 // ══════════════════════════════════════════════
 
-const APP_VERSION = 'v7.9';
+const APP_VERSION = 'v7.11';
 const GDRIVE_CLIENT_ID = '213127646668-v2lts4jl101jpq6m279s4cr2ps9ga3j5.apps.googleusercontent.com';
 const GDRIVE_SCOPE     = 'https://www.googleapis.com/auth/drive.appdata';
 const GDRIVE_FILE_NAME = 'goals_data.json';
@@ -13574,8 +13577,14 @@ async function gdriveLoadOrCreate() {
       const driveDate = new Date(data.files[0].modifiedTime).getTime();
       const localDate = parseInt(localStorage.getItem('goals_last_saved') || '0');
 
-      if (driveDate > localDate || !localRaw) {
-        // Drive és més nou — carregar del Drive
+      // Comptar clients totals al Drive i al local com a validació
+      const driveTotal = Object.values(driveData.months || {}).reduce((s, m) => s + (m.clients || []).length, 0);
+      const localParsed = localRaw ? JSON.parse(localRaw) : null;
+      const localTotal  = localParsed ? Object.values(localParsed.months || {}).reduce((s, m) => s + (m.clients || []).length, 0) : 0;
+      const driveSeems  = driveTotal > 0 || localTotal === 0;
+
+      if ((driveDate > localDate || !localRaw) && driveSeems) {
+        // Drive és més nou i té dades — carregar del Drive
         DB = recalculateAllEstats(driveData);
         // Recalcular estats
         Object.keys(DB.months || {}).forEach(mk => {
@@ -13820,6 +13829,7 @@ function gdriveForceLogout(reason) {
   clearTimeout(tokenRefreshTimer);
   localStorage.removeItem('goals_gdrive_was_connected');
   localStorage.removeItem('gdrive_token_expiry');
+  localStorage.removeItem('goals_last_saved');
   // Mostrar pantalla de login
   const splash = document.getElementById('splash-screen');
   if (splash) {
@@ -13915,7 +13925,7 @@ async function syncCurrentMonth() {
         const lc = localClients[localIdx];
         const driveTs = dc.updatedAt || 0;
         const localTs = lc.updatedAt || 0;
-        if (driveTs > localTs) {
+        if (driveTs > 0 && driveTs > localTs) {
           localClients[localIdx] = dc;
           changed = true;
         }
