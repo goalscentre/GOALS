@@ -775,7 +775,7 @@
   <div id="splash-screen" style="display:none;position:fixed;inset:0;background:#0f0f0f;z-index:9999;flex-direction:column;align-items:center;justify-content:center;gap:0">
     <img src="icon-512.png" style="width:120px;height:120px;border-radius:24px;margin-bottom:28px" />
     <div style="font-family:'Syne',sans-serif;font-weight:800;font-size:28px;color:#c8f045;margin-bottom:6px">GOALS</div>
-    <div style="font-family:'DM Mono',monospace;font-size:11px;color:#555;letter-spacing:1px;margin-bottom:48px">GESTIÓ DE PAGAMENTS · v7.13</div>
+    <div style="font-family:'DM Mono',monospace;font-size:11px;color:#555;letter-spacing:1px;margin-bottom:48px">GESTIÓ DE PAGAMENTS · v7.15</div>
     <div id="splash-content" style="display:flex;flex-direction:column;align-items:center;gap:12px;width:280px">
       <!-- Content injected by JS -->
     </div>
@@ -785,7 +785,7 @@
     <div class="sidebar-logo">
       <h1>GOALS</h1>
       <span>GESTIÓ DE PAGAMENTS</span>
-      <span id="sidebar-version" style="font-size:9px;color:#333;font-family:'DM Mono',monospace;letter-spacing:0.5px;margin-top:2px">v7.13</span>
+      <span id="sidebar-version" style="font-size:9px;color:#333;font-family:'DM Mono',monospace;letter-spacing:0.5px;margin-top:2px">v7.14</span>
     </div>
 
     <div class="sidebar-section">
@@ -10003,7 +10003,7 @@ function renderClientsTable(container) {
           ${!isClosed?`
           <div style="display:flex;align-items:center;gap:4px">
             <button onclick="updateSessions('${c.id}',-1)" style="width:20px;height:20px;border-radius:50%;border:1px solid var(--border2);background:var(--surface2);color:var(--text2);font-size:12px;cursor:pointer;display:flex;align-items:center;justify-content:center" onmouseover="this.style.color='var(--red)';this.style.borderColor='var(--red)'" onmouseout="this.style.color='var(--text2)';this.style.borderColor='var(--border2)'">−</button>
-            <span class="money" style="min-width:20px;text-align:center">${c.sessions}</span>
+            <input type="number" min="0" max="99" value="${c.sessions}" onchange="setSessionsDirect('${c.id}',this.value)" style="width:36px;text-align:center;background:var(--surface2);border:1px solid var(--border2);color:var(--text);border-radius:4px;padding:1px 2px;font-size:12px;font-family:var(--font-mono)">
             <button onclick="updateSessions('${c.id}',+1)" style="width:20px;height:20px;border-radius:50%;border:1px solid var(--border2);background:var(--surface2);color:var(--text2);font-size:12px;cursor:pointer;display:flex;align-items:center;justify-content:center" onmouseover="this.style.color='var(--accent)';this.style.borderColor='var(--accent)'" onmouseout="this.style.color='var(--text2)';this.style.borderColor='var(--border2)'">+</button>
           </div>`:`<span class="money">${c.sessions}</span>`}
         </td>
@@ -10012,8 +10012,7 @@ function renderClientsTable(container) {
           <div style="display:flex;align-items:center;gap:4px">
             <button onclick="updateSessionsDone('${c.id}',-1)" style="width:20px;height:20px;border-radius:50%;border:1px solid var(--border2);background:var(--surface2);color:var(--text2);font-size:12px;cursor:pointer;display:flex;align-items:center;justify-content:center" onmouseover="this.style.color='var(--red)';this.style.borderColor='var(--red)'" onmouseout="this.style.color='var(--text2)';this.style.borderColor='var(--border2)'">−</button>
             <div style="text-align:center;min-width:36px">
-              <span class="sessions-done" style="font-size:13px;font-weight:600">${c.sessionsDone||0}</span>
-              <span class="sessions-total"> / ${c.sessions}</span>
+              <input type="number" min="0" max="${c.sessions}" value="${c.sessionsDone||0}" onchange="setSessionsDoneDirect('${c.id}',this.value)" style="width:32px;text-align:center;background:var(--surface2);border:1px solid var(--border2);color:var(--text);border-radius:4px;padding:1px 2px;font-size:12px;font-family:var(--font-mono)"><span class="sessions-total"> / ${c.sessions}</span>
             </div>
             <button onclick="updateSessionsDone('${c.id}',+1)" style="width:20px;height:20px;border-radius:50%;border:1px solid var(--border2);background:var(--surface2);color:var(--text2);font-size:12px;cursor:pointer;display:flex;align-items:center;justify-content:center" onmouseover="this.style.color='var(--accent)';this.style.borderColor='var(--accent)'" onmouseout="this.style.color='var(--text2)';this.style.borderColor='var(--border2)'">+</button>
           </div>
@@ -10148,6 +10147,32 @@ function sortBy(col) {
   renderClientsTable(document.getElementById('content'));
 }
 
+function setSessionsDirect(id, val) {
+  const month = getCurrentMonth();
+  const client = month.clients.find(c => c.id === id);
+  if (!client) return;
+  const n = Math.max(0, Math.min(99, parseInt(val) || 0));
+  client.sessions = n;
+  client.updatedAt = Date.now();
+  const total  = clientTotal(client);
+  const paidR  = Math.round((client.paid || 0) * 100) / 100;
+  const totalR = Math.round(total * 100) / 100;
+  if (n === 0 && client.estat !== '99 No Aplica') client.estat = '99 No Aplica';
+  else if (client.estat === '99 No Aplica' && n > 0) client.estat = paidR >= totalR ? '02 Pagat' : '01 Pendent';
+  else if (paidR > totalR + 0.10) client.estat = '87 Excés Pagament';
+  else client.estat = paidR >= totalR ? '02 Pagat' : '01 Pendent';
+  saveData(); refreshClientRow(id); updateKPIs();
+}
+
+function setSessionsDoneDirect(id, val) {
+  const month = getCurrentMonth();
+  const client = month.clients.find(c => c.id === id);
+  if (!client) return;
+  client.sessionsDone = Math.max(0, Math.min(client.sessions, parseInt(val) || 0));
+  client.updatedAt = Date.now();
+  saveData(); refreshClientRow(id);
+}
+
 function updateSessions(id, delta) {
   const month = getCurrentMonth();
   const client = month.clients.find(c => c.id === id);
@@ -10177,7 +10202,7 @@ function updateSessionsDone(id, delta) {
   const month = getCurrentMonth();
   const client = month.clients.find(c => c.id === id);
   if (!client) return;
-  const next = Math.max(0, Math.min((client.sessionsDone||0) + delta, client.sessions + 10));
+  const next = Math.max(0, Math.min((client.sessionsDone||0) + delta, client.sessions));
   if (next === (client.sessionsDone||0)) return;
   client.sessionsDone = next;
   client.updatedAt = Date.now();
@@ -12993,7 +13018,7 @@ function renderAjuda(container, actions) {
   <div style="max-width:860px;margin:0 auto;display:flex;flex-direction:column;gap:16px">
 
     <div style="background:var(--accent-dim2);border:1px solid rgba(200,240,69,0.25);border-radius:var(--radius);padding:22px 26px">
-      <div style="font-family:var(--font-syne);font-weight:800;font-size:20px;color:var(--accent);margin-bottom:6px">GOALS — Gestió de Pagaments v7.13</div>
+      <div style="font-family:var(--font-syne);font-weight:800;font-size:20px;color:var(--accent);margin-bottom:6px">GOALS — Gestió de Pagaments v7.15</div>
       <div style="color:var(--text2);font-size:13.5px;line-height:1.7">
         Aplicació per gestionar clients, sessions, pagaments i finances del centre.
         Les dades es guarden localment al navegador i es sincronitzen automàticament amb Google Drive quan estàs connectat.
@@ -13334,13 +13359,13 @@ function renderMobileSessionsCards(container) {
         <div class="mobile-control-group">
           <span class="mobile-control-label">Contractades</span>
           <button class="mobile-btn minus" onclick="updateSessions('${c.id}',-1);renderMobileContent()">−</button>
-          <span class="mobile-count">${c.sessions}</span>
+          <input type="number" min="0" max="99" value="${c.sessions}" onchange="setSessionsDirect('${c.id}',this.value);renderMobileContent()" style="width:44px;text-align:center;background:var(--surface2);border:1px solid var(--border2);color:var(--text);border-radius:4px;padding:3px 4px;font-size:14px;font-family:var(--font-mono)">
           <button class="mobile-btn plus" onclick="updateSessions('${c.id}',+1);renderMobileContent()">+</button>
         </div>
         <div class="mobile-control-group">
           <span class="mobile-control-label">Realitzades</span>
           <button class="mobile-btn minus" onclick="updateSessionsDone('${c.id}',-1);renderMobileContent()">−</button>
-          <span class="mobile-count">${c.sessionsDone||0}</span>
+          <input type="number" min="0" max="${c.sessions}" value="${c.sessionsDone||0}" onchange="setSessionsDoneDirect('${c.id}',this.value);renderMobileContent()" style="width:44px;text-align:center;background:var(--surface2);border:1px solid var(--border2);color:var(--text);border-radius:4px;padding:3px 4px;font-size:14px;font-family:var(--font-mono)">
           <button class="mobile-btn plus" onclick="updateSessionsDone('${c.id}',+1);renderMobileContent()">+</button>
         </div>
         <div class="mobile-control-group">
@@ -13509,7 +13534,7 @@ function renderMobileResum(container) {
 // GOOGLE DRIVE SYNC
 // ══════════════════════════════════════════════
 
-const APP_VERSION = 'v7.13';
+const APP_VERSION = 'v7.15';
 const GDRIVE_CLIENT_ID = '213127646668-v2lts4jl101jpq6m279s4cr2ps9ga3j5.apps.googleusercontent.com';
 const GDRIVE_SCOPE     = 'https://www.googleapis.com/auth/drive.appdata';
 const GDRIVE_FILE_NAME = 'goals_data.json';
