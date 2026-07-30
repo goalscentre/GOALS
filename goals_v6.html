@@ -953,6 +953,20 @@ function hasTarifes(cat) {
 const MONTH_NAMES = ['Gener','Febrer','Març','Abril','Maig','Juny','Juliol','Agost','Setembre','Octubre','Novembre','Desembre'];
 
 function recalculateAllEstats(data) {
+  // Preu resolt des de `data`, mai des de la global DB: aquesta funció s'executa
+  // des de loadData(), i llavors DB encara no està inicialitzada. Si es fera
+  // servir getPrice() ací, tornaria 0 i tot client amb pagament acabaria marcat
+  // com a "87 Excés Pagament".
+  const priceFromData = (sessions, cat) => {
+    if (!sessions || sessions <= 0) return 0;
+    const tars = (data.tarifes && data.tarifes[cat || '01']) || [];
+    if (!tars.length) return 0;
+    for (const t of tars) {
+      if (sessions >= t.from && sessions <= t.to) return t.price;
+    }
+    return tars[tars.length - 1]?.price || 0;
+  };
+
   // Migració: congelar preus dels mesos tancats que no els tinguen congelats
   Object.keys(data.months || {}).forEach(mk => {
     const m = data.months[mk];
@@ -993,7 +1007,7 @@ function recalculateAllEstats(data) {
           if (!tars && c.priceOverride == null) {
             c.estat = '88 Sense Tarifa';
           } else {
-            const price  = c.priceOverride != null ? c.priceOverride : getPrice(c.sessions, c.cat);
+            const price  = c.priceOverride != null ? c.priceOverride : priceFromData(c.sessions, c.cat);
             const base   = price * c.sessions;
             const total  = c.descompte > 0 ? base * (1 - c.descompte / 100) : base;
             const totalR = Math.round(total * 100) / 100;
@@ -1271,7 +1285,7 @@ function renderClientsStats(panel, actions) {
           <span style="font-size:11px;font-family:var(--font-mono);color:var(--blue)">👨 ${homes} (${pctH}%)</span>
           <span style="font-size:11px;font-family:var(--font-mono);color:#f472b6">👩 ${dones} (${pctD}%)</span>
         </div>
-        <div class="kpi-sub">${totalSessions} sessions contractades</div>
+        <div class="kpi-sub kpi-sessions-sub">${totalSessions} sessions contractades</div>
       </div>
       <div class="kpi-card accent">
         <div class="kpi-label">Cobrat Total</div>
@@ -1293,8 +1307,10 @@ function renderClientsStats(panel, actions) {
       </div>
       <div class="kpi-card">
         <div class="kpi-label">Contractat</div>
-        <div class="kpi-value" style="color:var(--text2)">${fmt(totalIncome)}</div>
-        <div class="kpi-sub">${paidPct.toFixed(0)}% cobrat</div>
+        <div class="kpi-contractat-value">
+          <div class="kpi-value" style="color:var(--text2)">${fmt(totalIncome)}</div>
+          <div class="kpi-sub">${paidPct.toFixed(0)}% cobrat</div>
+        </div>
       </div>
     </div>
     <div class="result-banner ${netResult>=0?'positive':'negative'}" style="margin-bottom:12px">
@@ -1362,7 +1378,7 @@ function renderClientsTable(container) {
         rowsHtml += `<tr class="cat-separator"><td colspan="9"><span class="${catInfo.cls} cat-badge">${catInfo.label}</span></td></tr>`;
         lastCat = cat;
       }
-      const price   = c.priceOverride!=null ? c.priceOverride : getPrice(c.sessions);
+      const price   = c.priceOverride!=null ? c.priceOverride : getPrice(c.sessions, c.cat);
       const total   = clientTotal(c);
       const pending = clientPending(c);
       const isPending = c.estat==='01 Pendent';
@@ -1768,6 +1784,25 @@ function updateKPIs() {
     <div class="kpi-value" style="color:var(--orange)">${fmt(totalPending)}</div>
     <div class="kpi-sub">${pendingCount} clients pendents</div>`;
 
+  const kpiContractat = document.querySelector('.kpi-contractat-value');
+  if (kpiContractat) kpiContractat.innerHTML = `
+    <div class="kpi-value" style="color:var(--text2)">${fmt(totalIncome)}</div>
+    <div class="kpi-sub">${paidPct.toFixed(0)}% cobrat</div>`;
+
+  const totalSessions = active.reduce((s,c) => s+(c.sessions||0), 0);
+  const kpiSessions = document.querySelector('.kpi-sessions-sub');
+  if (kpiSessions) kpiSessions.textContent = `${totalSessions} sessions contractades`;
+
+  // Comptadors dels filtres. Es reconstrueix la barra sencera perquè els
+  // distintius poden aparèixer o desaparèixer (p. ex. "No Aplica" en baixar
+  // les sessions a 0). No roba el focus: la barra és un subarbre separat de
+  // la taula, que és on s'està editant.
+  const toolbar = document.getElementById('clients-toolbar');
+  if (toolbar && !toolbar.contains(document.activeElement)) renderClientsToolbar(toolbar);
+
+  const bell = document.querySelector('#topbar-actions [title="Pendents del mes"]');
+  if (bell) bell.innerHTML = `🔔${pendingCount>0?`<span style="position:absolute;top:-4px;right:-4px;background:var(--orange);color:#111;font-size:9px;font-weight:700;width:16px;height:16px;border-radius:50%;display:flex;align-items:center;justify-content:center">${pendingCount}</span>`:''}`;
+
   const banner = document.querySelector('.result-banner');
   if (banner) {
     banner.className = `result-banner ${net>=0?'positive':'negative'}`;
@@ -1800,7 +1835,9 @@ function toggleClosedMonth(close) {
   } else {
     getCurrentMonth().closed = false;
     saveData(); render();
-    toast('Mes re-obert ✓');
+    // El tancament va congelar els preus (priceOverride) i re-obrir no els
+    // descongela: cal avisar-ho o el client queda fora de futurs canvis de tarifa.
+    toast('Mes re-obert ✓ — els preus continuen congelats (★). Per tornar al preu automàtic, edita el client i buida el camp «€ per sessió».', 'success', 8000);
   }
 }
 
@@ -1841,7 +1878,8 @@ function openExportToMonth() {
     <div class="modal-body">
       <p style="color:var(--text2);font-size:13px;margin-bottom:18px">
         Es copiaran tots els clients actius de <strong style="color:var(--text)">${escH(DB.months[DB.currentMonth].label)}</strong> al nou mes,
-        amb les <strong>mateixes sessions i preus</strong> però pagament reiniciat a pendent.
+        amb els <strong>mateixos preus</strong>. Les sessions i el pagament es reinicien a 0:
+        així veuràs de seguida a qui li falta encara demanar les sessions del mes.
       </p>
       <div class="form-grid">
         <div class="form-group">
@@ -1956,6 +1994,9 @@ function openAddClient() {
       <button class="btn btn-primary" onclick="saveClientFromModal()">➕ Afegir Client</button>
     </div>
   `);
+
+  // Sense històric encara no hi ha ningú a triar: obrir directament en "Client nou"
+  if (existingClients.length === 0) switchAddClientTab('new');
 }
 
 function switchAddClientTab(tab) {
@@ -2102,7 +2143,7 @@ function buildClientFullForm(c) {
       <div class="form-group">
         <label>€ PER SESSIÓ (buit = automàtic)</label>
         <input type="number" id="f-price" value="${c.priceOverride!=null?c.priceOverride:''}" step="0.01" placeholder="Automàtic..." oninput="updatePriceHint()" />
-        <span class="form-hint" id="price-hint">Preu automàtic: ${getPrice(c.sessions).toFixed(2)} €/sessió</span>
+        <span class="form-hint" id="price-hint">Preu automàtic: ${getPrice(c.sessions, c.cat).toFixed(2)} €/sessió</span>
       </div>
       <div class="form-group">
         <label>DESCOMPTE (%)</label>
@@ -2681,8 +2722,11 @@ function openGastoModal(gasto) {
         <div class="form-group full">
           <label>TIPUS DE GASTO</label>
           <select id="g-type">
-            ${EXPENSE_TYPES.map(t => `<option value="${t}" ${g.type===t?'selected':''}>${t}</option>`).join('')}
-            <option value="ALTRES" ${!EXPENSE_TYPES.includes(g.type)?'selected':''}>ALTRES</option>
+            ${EXPENSE_TYPES.map(t => {
+              // "ALTRES" també recull els gastos antics amb un tipus ja no llistat
+              const sel = g.type===t || (t==='ALTRES' && !EXPENSE_TYPES.includes(g.type));
+              return `<option value="${t}" ${sel?'selected':''}>${t}</option>`;
+            }).join('')}
           </select>
         </div>
         <div class="form-group">
@@ -2943,12 +2987,29 @@ function buildBarChart(data) {
   const chartW = W - PAD.left - PAD.right;
   const chartH = H - PAD.top - PAD.bottom;
 
-  const maxVal = Math.max(...data.map(d => Math.max(d.income || 0, d.expenses || 0)), 1);
+  // L'escala ha d'incloure el resultat net, que pot ser negatiu, perquè el
+  // punt de net es dibuixe en la seua posició real i no només com a marcador.
+  const nets   = data.map(d => (d.income || 0) - (d.expenses || 0));
+  const rawMax = Math.max(...data.map(d => Math.max(d.income || 0, d.expenses || 0)), ...nets, 1);
+  const rawMin = Math.min(0, ...nets);
 
-  // Y axis ticks (4 lines)
-  const tickCount = 4;
-  const tickStep = maxVal / tickCount;
-  const ticks = Array.from({length: tickCount + 1}, (_, i) => i * tickStep);
+  // Pas d'escala "rodó" (1, 2, 5 × 10ⁿ) perquè les etiquetes siguen llegibles
+  const niceStep = raw => {
+    const mag  = Math.pow(10, Math.floor(Math.log10(raw)));
+    const norm = raw / mag;
+    return (norm <= 1 ? 1 : norm <= 2 ? 2 : norm <= 5 ? 5 : 10) * mag;
+  };
+  const step   = niceStep(Math.max((rawMax - rawMin) / 4, 1));
+  const maxVal = Math.ceil(rawMax / step) * step;
+  const minVal = Math.floor(rawMin / step) * step;
+  const span   = (maxVal - minVal) || 1;
+
+  // Projecció valor → coordenada Y
+  const yOf   = v => PAD.top + chartH * (maxVal - v) / span;
+  const zeroY = yOf(0);
+
+  const ticks = [];
+  for (let t = minVal; t <= maxVal + step * 0.001; t += step) ticks.push(t);
 
   const n = data.length;
   const groupW = chartW / n;
@@ -2956,27 +3017,31 @@ function buildBarChart(data) {
   const gap = Math.min(groupW * 0.06, 6);
 
   // Format shorthand
-  const fmtShort = v => v >= 1000 ? (v/1000).toFixed(1).replace('.0','') + 'k' : Math.round(v).toString();
+  const fmtShort = v => {
+    const a = Math.abs(v);
+    const s = a >= 1000 ? (a/1000).toFixed(1).replace('.0','') + 'k' : Math.round(a).toString();
+    return (v < 0 ? '−' : '') + s;
+  };
 
   // Grid lines + Y labels
   let gridLines = '';
   ticks.forEach(t => {
-    const y = PAD.top + chartH - (t / maxVal) * chartH;
+    const y = yOf(t);
     gridLines += `<line x1="${PAD.left}" y1="${y.toFixed(1)}" x2="${W - PAD.right}" y2="${y.toFixed(1)}" stroke="#333" stroke-width="1"/>`;
     gridLines += `<text x="${PAD.left - 6}" y="${(y + 4).toFixed(1)}" text-anchor="end" fill="#666" font-size="10" font-family="DM Mono,monospace">${fmtShort(t)}€</text>`;
   });
 
   // Bars + labels
   let bars = '';
+  let netDots = '';
   data.forEach((d, i) => {
     const cx = PAD.left + i * groupW + groupW / 2;
-    const iH = Math.max(2, ((d.income || 0) / maxVal) * chartH);
-    const eH = Math.max(2, ((d.expenses || 0) / maxVal) * chartH);
+    const iH = Math.max(2, zeroY - yOf(d.income   || 0));
+    const eH = Math.max(2, zeroY - yOf(d.expenses || 0));
     const iX = cx - barW - gap / 2;
     const eX = cx + gap / 2;
-    const iY = PAD.top + chartH - iH;
-    const eY = PAD.top + chartH - eH;
-    const baseY = PAD.top + chartH;
+    const iY = zeroY - iH;
+    const eY = zeroY - eH;
 
     // Income bar
     bars += `<rect x="${iX.toFixed(1)}" y="${iY.toFixed(1)}" width="${barW.toFixed(1)}" height="${iH.toFixed(1)}" fill="#c8f045" rx="3" opacity="0.85">
@@ -2984,28 +3049,26 @@ function buildBarChart(data) {
     // Expense bar
     bars += `<rect x="${eX.toFixed(1)}" y="${eY.toFixed(1)}" width="${barW.toFixed(1)}" height="${eH.toFixed(1)}" fill="#ff5a5a" rx="3" opacity="0.75">
       <title>Gastos: ${fmt(d.expenses)}</title></rect>`;
-    // X label
-    const labelY = baseY + 14;
+    // X label — sempre al peu del gràfic, no a la línia del zero
+    const labelY = PAD.top + chartH + 14;
     bars += `<text x="${cx.toFixed(1)}" y="${labelY}" text-anchor="middle" fill="#666" font-size="9" font-family="DM Mono,monospace">${escH(d.label)}</text>`;
 
-    // Net indicator (small dot above income bar if positive net)
-    const net = (d.income || 0) - (d.expenses || 0);
-    if (net !== 0) {
-      const dotY = Math.min(iY, eY) - 6;
-      const dotColor = net >= 0 ? '#c8f045' : '#ff5a5a';
-      bars += `<circle cx="${cx.toFixed(1)}" cy="${dotY.toFixed(1)}" r="3" fill="${dotColor}" opacity="0.9">
-        <title>Net: ${fmt(net)}</title></circle>`;
-    }
+    // Resultat net, en la seua posició real dins de l'escala
+    const net = nets[i];
+    const dotY = yOf(net);
+    const dotColor = net >= 0 ? '#c8f045' : '#ff5a5a';
+    netDots += `<circle cx="${cx.toFixed(1)}" cy="${dotY.toFixed(1)}" r="3.5" fill="${dotColor}" stroke="#141414" stroke-width="1.5">
+      <title>Net: ${fmt(net)}</title></circle>`;
   });
 
-  // Baseline
-  const baseY = PAD.top + chartH;
-  const baseline = `<line x1="${PAD.left}" y1="${baseY}" x2="${W - PAD.right}" y2="${baseY}" stroke="#444" stroke-width="1.5"/>`;
+  // Línia del zero (referència del net)
+  const baseline = `<line x1="${PAD.left}" y1="${zeroY.toFixed(1)}" x2="${W - PAD.right}" y2="${zeroY.toFixed(1)}" stroke="#666" stroke-width="1.5"/>`;
 
   return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;display:block;overflow:visible" xmlns="http://www.w3.org/2000/svg">
     ${gridLines}
     ${baseline}
     ${bars}
+    ${netDots}
   </svg>`;
 }
 
@@ -3142,6 +3205,7 @@ function renderAnual(container, actions) {
       <div style="display:flex;gap:16px;margin-top:10px;font-size:11px;color:var(--text3)">
         <span><span style="display:inline-block;width:10px;height:10px;background:#c8f045;border-radius:2px;margin-right:4px"></span>Ingressos cobrats</span>
         <span><span style="display:inline-block;width:10px;height:10px;background:#ff5a5a;border-radius:2px;margin-right:4px"></span>Gastos</span>
+        <span><span style="display:inline-block;width:8px;height:8px;background:#c8f045;border:1.5px solid #141414;border-radius:50%;margin-right:4px"></span>Resultat net <span style="color:var(--text3)">(verd positiu · roig negatiu)</span></span>
       </div>
     </div>
 
@@ -3627,10 +3691,15 @@ function createMonth() {
 function exportCSV() {
   const month = getCurrentMonth();
   const clients = (month.clients || []).filter(c => c.estat !== '99 No Aplica' );
-  const rows = [['Client','Sessions','Sessions Realitzades','€/Sessió','Total','Pagat','Pendent','Via','Estat','Notes']];
+  const rows = [['Client','Sessions','Sessions Realitzades','€/Sessió','Base','Descompte (%)','Total','Pagat','Pendent','Via','Estat','Notes']];
   clients.forEach(c => {
-    const price = c.priceOverride != null ? c.priceOverride : getPrice(c.sessions);
-    rows.push([c.name, c.sessions, c.sessionsDone||0, price.toFixed(2), clientTotal(c).toFixed(2), c.paid||0, clientPending(c).toFixed(2), c.via, c.estat, c.notes||'']);
+    // Mateixa expressió de preu que clientTotal(), perquè Base i Total quadren
+    // sempre: Sessions × €/Sessió = Base, i Base − Descompte% = Total.
+    const price = (c.priceOverride != null && c.priceOverride > 0) ? c.priceOverride : getPrice(c.sessions, c.cat);
+    const base  = price * c.sessions;
+    const dto   = c.descompte != null ? c.descompte : 0;
+    rows.push([c.name, c.sessions, c.sessionsDone||0, price.toFixed(2), base.toFixed(2), dto,
+               clientTotal(c).toFixed(2), c.paid||0, clientPending(c).toFixed(2), c.via, c.estat, c.notes||'']);
   });
   const csv = rows.map(r => r.map(v => `"${String(v).replace(/"/g,'""')}"`).join(',')).join('\n');
   const blob = new Blob(['\uFEFF'+csv], { type: 'text/csv;charset=utf-8;' });
@@ -3872,12 +3941,12 @@ function overlayClose(e) { if (e.target.classList.contains('modal-overlay')) clo
 // TOAST
 // ══════════════════════════════════════════════
 
-function toast(msg, type='success') {
+function toast(msg, type='success', duration=3000) {
   const el = document.createElement('div');
   el.className = `toast ${type}`;
   el.textContent = msg;
   document.getElementById('toast-container').appendChild(el);
-  setTimeout(() => el.remove(), 3000);
+  setTimeout(() => el.remove(), duration);
 }
 
 // ══════════════════════════════════════════════
@@ -4319,7 +4388,7 @@ function renderDetallTab(k, m, clients, pendingClients) {
     </tr></thead>
     <tbody>
       ${sorted.map(c => {
-        const price = c.priceOverride != null ? c.priceOverride : getPrice(c.sessions);
+        const price = c.priceOverride != null ? c.priceOverride : getPrice(c.sessions, c.cat);
         const total = clientTotal(c);
         const pending = clientPending(c);
         const isPending = c.estat === '01 Pendent';
