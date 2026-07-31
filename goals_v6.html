@@ -2055,7 +2055,11 @@ function buildClientSessionsForm(c, globalDiscount) {
       </div>
       <div class="form-group">
         <label>€ PER SESSIÓ (buit = automàtic)</label>
-        <input type="number" id="ex-price" value="${price!=null?price:''}" step="0.01" placeholder="Automàtic..." oninput="updatePriceHintEx()" />
+        <div style="display:flex;gap:6px;align-items:center">
+          <input type="number" id="ex-price" value="${price!=null?price:''}" step="0.01" placeholder="Automàtic..." oninput="updatePriceHintEx()" style="flex:1;min-width:0" />
+          <button type="button" class="btn btn-sm btn-secondary" id="ex-price-auto" style="flex-shrink:0${price!=null?'':';display:none'}"
+            title="Tornar al preu automàtic de la tarifa" onclick="resetPriceToAuto('ex-price','updatePriceHintEx')">↺ auto</button>
+        </div>
         <span class="form-hint" id="ex-price-hint">Càlcul automàtic</span>
       </div>
       <div class="form-group">
@@ -2085,6 +2089,23 @@ function buildClientSessionsForm(c, globalDiscount) {
   `;
 }
 
+// Torna el client al preu automàtic de la tarifa. El camp buit ja significa
+// "automàtic", però buidar-lo no és una acció visible: aquest botó la fa evident.
+// Cal sobretot després de tancar i re-obrir un mes, que deixa preu manual a tots.
+function resetPriceToAuto(inputId, hintFnName) {
+  const f = document.getElementById(inputId);
+  if (!f) return;
+  f.value = '';
+  if (typeof window[hintFnName] === 'function') window[hintFnName]();
+  f.focus();
+}
+
+// El botó només té sentit quan hi ha preu manual
+function togglePriceAutoBtn(inputId, hasManualPrice) {
+  const b = document.getElementById(inputId + '-auto');
+  if (b) b.style.display = hasManualPrice ? '' : 'none';
+}
+
 function updatePriceHintEx() {
   const sessions = parseInt(document.getElementById('ex-sessions')?.value) || 0;
   const priceInput = document.getElementById('ex-price')?.value;
@@ -2098,6 +2119,7 @@ function updatePriceHintEx() {
   const total = descompte > 0 ? base * (1 - descompte/100) : base;
   const dtoText = descompte > 0 ? ' → Amb ' + descompte + '% dto: ' + fmt(total) : '';
   hint.textContent = 'Preu automàtic: ' + autoPrice.toFixed(2) + ' €/sessió → Base: ' + fmt(base) + dtoText;
+  togglePriceAutoBtn('ex-price', !!priceInput);
 }
 
 function buildClientFullForm(c) {
@@ -2142,7 +2164,11 @@ function buildClientFullForm(c) {
       </div>
       <div class="form-group">
         <label>€ PER SESSIÓ (buit = automàtic)</label>
-        <input type="number" id="f-price" value="${c.priceOverride!=null?c.priceOverride:''}" step="0.01" placeholder="Automàtic..." oninput="updatePriceHint()" />
+        <div style="display:flex;gap:6px;align-items:center">
+          <input type="number" id="f-price" value="${c.priceOverride!=null?c.priceOverride:''}" step="0.01" placeholder="Automàtic..." oninput="updatePriceHint()" style="flex:1;min-width:0" />
+          <button type="button" class="btn btn-sm btn-secondary" id="f-price-auto" style="flex-shrink:0${c.priceOverride!=null?'':';display:none'}"
+            title="Tornar al preu automàtic de la tarifa" onclick="resetPriceToAuto('f-price','updatePriceHint')">↺ auto</button>
+        </div>
         <span class="form-hint" id="price-hint">Preu automàtic: ${getPrice(c.sessions, c.cat).toFixed(2)} €/sessió</span>
       </div>
       <div class="form-group">
@@ -2255,6 +2281,7 @@ function updatePriceHint() {
   const total = descompte > 0 ? base * (1 - descompte/100) : base;
   const dtoText = descompte > 0 ? ' → Amb ' + descompte + '% dto: ' + fmt(total) : '';
   hint.textContent = 'Preu automàtic: ' + autoPrice.toFixed(2) + ' €/sessió → Base: ' + fmt(base) + dtoText;
+  togglePriceAutoBtn('f-price', !!priceInput);
 }
 
 function saveClient(id) {
